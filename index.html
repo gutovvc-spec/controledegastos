@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle de Gastos da Família</title>
+<style>
+  :root{
+    --bg:#f3f5f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#e5e7eb;
+    --green:#16a34a; --red:#dc2626; --blue:#2563eb; --orange:#ea580c; --primary:#4f46e5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  header{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:20px 16px}
+  header .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+  h1{margin:0;font-size:1.4rem}
+  .wrap{max-width:1100px;margin:0 auto}
+  main{max-width:1100px;margin:0 auto;padding:16px}
+  .grid{display:grid;gap:16px}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+  .two{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .card{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .card h2{margin:0 0 12px;font-size:1.05rem}
+  .stat small{color:var(--muted);display:block;margin-bottom:4px}
+  .stat b{font-size:1.5rem}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  form{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+  label{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  input,select{padding:10px;border:1px solid var(--line);border-radius:8px;font-size:1rem;background:#fff;width:100%}
+  input:focus,select:focus{outline:2px solid #c7d2fe;border-color:var(--primary)}
+  button{cursor:pointer;border:0;border-radius:8px;padding:10px 14px;font-size:.95rem;font-weight:600;background:var(--primary);color:#fff}
+  button.sec{background:#eef2ff;color:var(--primary)}
+  button.danger{background:#fee2e2;color:var(--red);padding:6px 10px}
+  button.ok{background:var(--green)}
+  .toggle{display:flex;gap:8px;grid-column:1/-1}
+  .toggle label{flex:1;flex-direction:row;align-items:center;justify-content:center;border:2px solid var(--line);border-radius:10px;padding:10px;cursor:pointer;font-size:1rem;color:var(--text)}
+  .toggle input{display:none}
+  .toggle label.on.in{border-color:var(--green);background:#dcfce7;color:var(--green)}
+  .toggle label.on.out{border-color:var(--red);background:#fee2e2;color:var(--red)}
+  .full{grid-column:1/-1}
+  table{width:100%;border-collapse:collapse;font-size:.92rem}
+  th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:.8rem}
+  td.r,th.r{text-align:right}
+  .scroll{max-height:380px;overflow:auto}
+  .legend{display:flex;flex-direction:column;gap:6px;font-size:.9rem;flex:1;min-width:150px}
+  .legend div{display:flex;align-items:center;gap:8px}
+  .dot{width:12px;height:12px;border-radius:3px;flex:none}
+  .chart{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:center}
+  .debt{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+  .debt .top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .bar{height:10px;background:#e5e7eb;border-radius:99px;overflow:hidden;margin:8px 0}
+  .bar span{display:block;height:100%;background:var(--green);border-radius:99px}
+  .pay{display:flex;gap:6px;margin-top:6px}
+  .pay input{flex:1}
+  .tag{font-size:.72rem;background:#eef2ff;color:var(--primary);padding:2px 8px;border-radius:99px}
+  .late{color:var(--red);font-weight:600;font-size:.8rem}
+  .empty{color:var(--muted);text-align:center;padding:20px 0;font-size:.9rem}
+  .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .tools select{width:auto;background:#fff}
+  header button{background:rgba(255,255,255,.2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>💰 Controle de Gastos da Família</h1>
+    <div class="tools">
+      <select id="mes" title="Período"></select>
+      <button id="btnExp">⬇ Backup</button>
+      <button id="btnImp">⬆ Restaurar</button>
+      <input type="file" id="file" accept=".json" hidden>
+    </div>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="grid cards">
+    <div class="card stat"><small>Receitas</small><b class="pos" id="sRec">R$ 0,00</b></div>
+    <div class="card stat"><small>Despesas</small><b class="neg" id="sDesp">R$ 0,00</b></div>
+    <div class="card stat"><small>Saldo do período</small><b id="sSaldo">R$ 0,00</b></div>
+    <div class="card stat"><small>Dívidas em aberto</small><b style="color:var(--orange)" id="sDiv">R$ 0,00</b></div>
+  </section>
+
+  <section class="card">
+    <h2>➕ Novo lançamento</h2>
+    <form id="fTx">
+      <div class="toggle">
+        <label class="in on" id="lbIn"><input type="radio" name="tipo" value="receita" checked> ⬆ Receita (entrada)</label>
+        <label class="out" id="lbOut"><input type="radio" name="tipo" value="despesa"> ⬇ Despesa (saída)</label>
+      </div>
+      <label>Descrição<input name="desc" required placeholder="Ex.: Mercado"></label>
+      <label>Valor (R$)<input name="valor" type="number" step="0.01" min="0.01" required placeholder="0,00" inputmode="decimal"></label>
+      <label>Categoria<select name="cat" id="selCat"></select></label>
+      <label>Quem?<select name="quem">
+        <option>Família</option><option>Pai</option><option>Mãe</option><option>Filho(a)</option><option>Outro</option></select></label>
+      <label>Data<input name="data" type="date" required></label>
+      <label class="full" style="justify-content:flex-end"><button type="submit">Adicionar lançamento</button></label>
+    </form>
+  </section>
+
+  <section class="grid two">
+    <div class="card">
+      <h2>🍩 Despesas por categoria</h2>
+      <div class="chart" id="chPizza"></div>
+    </div>
+    <div class="card">
+      <h2>📊 Receitas x Despesas (últimos 6 meses)</h2>
+      <div id="chBarras"></div>
+    </div>
+  </section>
+
+  <section class="grid two">
+    <div class="card">
+      <h2>🧾 Lançamentos</h2>
+      <div class="scroll" id="listaTx"></div>
+    </div>
+    <div class="card">
+      <h2>💳 Dívidas</h2>
+      <form id="fDiv" style="margin-bottom:14px">
+        <label>Quem devemos / o quê<input name="nome" required placeholder="Ex.: Cartão, Empréstimo"></label>
+        <label>Valor total (R$)<input name="total" type="number" step="0.01" min="0.01" required inputmode="decimal"></label>
+        <label>Vencimento<input name="venc" type="date"></label>
+        <label style="justify-content:flex-end"><button class="ok" type="submit">Adicionar dívida</button></label>
+      </form>
+      <div id="listaDiv"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const CAT_DESP = ["🛒 Mercado","🏠 Moradia","💡 Contas (luz/água/internet)","🚗 Transporte","🍽️ Alimentação fora","💊 Saúde","📚 Educação","🎮 Lazer","👕 Roupas","💳 Dívidas","📦 Outros"];
+const CAT_REC  = ["💼 Salário","🧾 Extra / Freelance","🎁 Presente","📈 Investimentos","📦 Outros"];
+const CORES = ["#4f46e5","#16a34a","#ea580c","#0ea5e9","#db2777","#ca8a04","#7c3aed","#14b8a6","#dc2626","#64748b","#84cc16"];
+const KEY = "gastos-familia-v1";
+const $ = s => document.querySelector(s);
+const brl = v => v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hoje = () => new Date().toISOString().slice(0,10);
+
+let db = {tx:[], dividas:[]};
+try { db = JSON.parse(localStorage.getItem(KEY)) || db; } catch(e){}
+const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){} };
+
+let periodo = "todos";
+
+/* ---------- Formulário ---------- */
+const fTx = $("#fTx");
+fTx.data.value = hoje();
+function fillCats(){
+  const tipo = fTx.tipo.value;
+  $("#selCat").innerHTML = (tipo==="receita"?CAT_REC:CAT_DESP).map(c=>`<option>${c}</option>`).join("");
+  $("#lbIn").className = "in" + (tipo==="receita"?" on":"");
+  $("#lbOut").className = "out" + (tipo==="despesa"?" on":"");
+}
+document.querySelectorAll('input[name="tipo"]').forEach(r=>r.addEventListener("change",fillCats));
+fillCats();
+
+fTx.addEventListener("submit", e=>{
+  e.preventDefault();
+  db.tx.push({
+    id:uid(), tipo:fTx.tipo.value, desc:fTx.desc.value.trim(),
+    valor:parseFloat(fTx.valor.value), cat:fTx.cat.value, quem:fTx.quem.value, data:fTx.data.value
+  });
+  save(); fTx.desc.value=""; fTx.valor.value=""; fTx.desc.focus(); render();
+});
+
+$("#fDiv").addEventListener("submit", e=>{
+  e.preventDefault();
+  const f = e.target;
+  db.dividas.push({id:uid(), nome:f.nome.value.trim(), total:parseFloat(f.total.value), pago:0, venc:f.venc.value});
+  save(); f.reset(); render();
+});
+
+/* ---------- Ações ---------- */
+function delTx(id){ db.tx = db.tx.filter(t=>t.id!==id); save(); render(); }
+function delDiv(id){ if(confirm("Excluir esta dívida?")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); render(); } }
+function pagar(id){
+  const d = db.dividas.find(x=>x.id===id);
+  const inp = document.getElementById("p"+id);
+  let v = parseFloat(inp.value);
+  if(!(v>0)) return;
+  v = Math.min(v, d.total-d.pago);
+  d.pago += v;
+  if(document.getElementById("c"+id).checked){
+    db.tx.push({id:uid(),tipo:"despesa",desc:"Pagamento: "+d.nome,valor:v,cat:"💳 Dívidas",quem:"Família",data:hoje()});
+  }
+  save(); render();
+}
+$("#mes").addEventListener("change", e=>{ periodo=e.target.value; render(); });
+
+/* ---------- Backup ---------- */
+$("#btnExp").onclick = ()=>{
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(db,null,2)],{type:"application/json"}));
+  a.download = "backup-gastos-"+hoje()+".json"; a.click();
+};
+$("#btnImp").onclick = ()=>$("#file").click();
+$("#file").onchange = e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{ try{ const d=JSON.parse(r.result); if(d.tx&&d.dividas){db=d;save();render();alert("Backup restaurado!");}else throw 0; }catch{ alert("Arquivo inválido."); } };
+  r.readAsText(f); e.target.value="";
+};
+
+/* ---------- Gráficos ---------- */
+function pizza(dados){
+  const total = dados.reduce((s,d)=>s+d.v,0);
+  if(!total) return `<div class="empty">Nenhuma despesa neste período.</div>`;
+  const R=70, C=2*Math.PI*R; let off=0;
+  const arcos = dados.map((d,i)=>{
+    const len = d.v/total*C;
+    const s = `<circle r="${R}" cx="100" cy="100" fill="none" stroke="${CORES[i%CORES.length]}" stroke-width="38"
+      stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 100 100)"><title>${esc(d.n)}: ${brl(d.v)}</title></circle>`;
+    off+=len; return s;
+  }).join("");
+  const leg = dados.map((d,i)=>`<div><span class="dot" style="background:${CORES[i%CORES.length]}"></span>
+    <span style="flex:1">${esc(d.n)}</span><b>${(d.v/total*100).toFixed(0)}%</b></div>`).join("");
+  return `<svg viewBox="0 0 200 200" width="200" height="200">${arcos}
+    <text x="100" y="97" text-anchor="middle" font-size="11" fill="#6b7280">Total</text>
+    <text x="100" y="115" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2937">${brl(total)}</text></svg>
+    <div class="legend">${leg}</div>`;
+}
+
+function barras(){
+  const meses=[]; const d=new Date(); d.setDate(1);
+  for(let i=5;i>=0;i--){ const x=new Date(d.getFullYear(),d.getMonth()-i,1); meses.push(x.toISOString().slice(0,7)); }
+  const dados = meses.map(m=>({
+    m, r:db.tx.filter(t=>t.tipo==="receita"&&t.data.startsWith(m)).reduce((s,t)=>s+t.valor,0),
+       d:db.tx.filter(t=>t.tipo==="despesa"&&t.data.startsWith(m)).reduce((s,t)=>s+t.valor,0)
+  }));
+  const max = Math.max(1,...dados.map(x=>Math.max(x.r,x.d)));
+  const W=520,H=230,pb=28,pt=10,bw=18,gap=(W-40)/6;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">`;
+  for(let i=0;i<=4;i++){
+    const y=pt+(H-pb-pt)*(1-i/4);
+    svg+=`<line x1="40" x2="${W}" y1="${y}" y2="${y}" stroke="#e5e7eb"/><text x="36" y="${y+4}" text-anchor="end" font-size="9" fill="#6b7280">${Math.round(max*i/4)}</text>`;
+  }
+  dados.forEach((x,i)=>{
+    const cx=40+gap*i+gap/2, h=v=>(H-pb-pt)*v/max;
+    svg+=`<rect x="${cx-bw-1}" y="${H-pb-h(x.r)}" width="${bw}" height="${h(x.r)}" rx="3" fill="#16a34a"><title>Receitas: ${brl(x.r)}</title></rect>`;
+    svg+=`<rect x="${cx+1}" y="${H-pb-h(x.d)}" width="${bw}" height="${h(x.d)}" rx="3" fill="#dc2626"><title>Despesas: ${brl(x.d)}</title></rect>`;
+    const [a,mm]=x.m.split("-");
+    svg+=`<text x="${cx}" y="${H-10}" text-anchor="middle" font-size="10" fill="#6b7280">${mm}/${a.slice(2)}</text>`;
+  });
+  return svg+`</svg><div style="display:flex;gap:16px;justify-content:center;font-size:.85rem">
+    <span><span class="dot" style="background:#16a34a;display:inline-block"></span> Receitas</span>
+    <span><span class="dot" style="background:#dc2626;display:inline-block"></span> Despesas</span></div>`;
+}
+
+/* ---------- Render ---------- */
+function atualizaMeses(){
+  const set = new Set(db.tx.map(t=>t.data.slice(0,7)));
+  set.add(hoje().slice(0,7));
+  const lista = [...set].sort().reverse();
+  const nomes = m=>{ const [a,mm]=m.split("-"); return new Date(a,mm-1,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"}); };
+  $("#mes").innerHTML = `<option value="todos">Todos os períodos</option>` +
+    lista.map(m=>`<option value="${m}">${nomes(m)}</option>`).join("");
+  if(periodo!=="todos" && !lista.includes(periodo)) periodo="todos";
+  $("#mes").value = periodo;
+}
+
+function render(){
+  atualizaMeses();
+  const txs = db.tx.filter(t=>periodo==="todos"||t.data.startsWith(periodo))
+                   .sort((a,b)=>b.data.localeCompare(a.data));
+  const rec = txs.filter(t=>t.tipo==="receita").reduce((s,t)=>s+t.valor,0);
+  const desp = txs.filter(t=>t.tipo==="despesa").reduce((s,t)=>s+t.valor,0);
+  const aberto = db.dividas.reduce((s,d)=>s+(d.total-d.pago),0);
+  $("#sRec").textContent=brl(rec); $("#sDesp").textContent=brl(desp);
+  const sd=$("#sSaldo"); sd.textContent=brl(rec-desp); sd.className=(rec-desp>=0?"pos":"neg");
+  $("#sDiv").textContent=brl(aberto);
+
+  // pizza
+  const porCat={};
+  txs.filter(t=>t.tipo==="despesa").forEach(t=>porCat[t.cat]=(porCat[t.cat]||0)+t.valor);
+  const dadosP=Object.entries(porCat).map(([n,v])=>({n,v})).sort((a,b)=>b.v-a.v);
+  $("#chPizza").innerHTML=pizza(dadosP);
+  $("#chBarras").innerHTML=barras();
+
+  // lançamentos
+  $("#listaTx").innerHTML = txs.length ? `<table><thead><tr><th>Data</th><th>Descrição</th><th class="r">Valor</th><th></th></tr></thead><tbody>`+
+    txs.map(t=>`<tr><td>${t.data.split("-").reverse().slice(0,2).join("/")}</td>
+      <td>${esc(t.desc)}<br><span class="tag">${esc(t.cat)}</span> <span class="tag">${esc(t.quem)}</span></td>
+      <td class="r ${t.tipo==="receita"?"pos":"neg"}"><b>${t.tipo==="receita"?"+":"-"}${brl(t.valor)}</b></td>
+      <td class="r"><button class="danger" onclick="delTx('${t.id}')" title="Excluir">✕</button></td></tr>`).join("")+`</tbody></table>`
+    : `<div class="empty">Nenhum lançamento ainda. Adicione o primeiro acima!</div>`;
+
+  // dívidas
+  $("#listaDiv").innerHTML = db.dividas.length ? db.dividas.map(d=>{
+    const rest=d.total-d.pago, pct=Math.min(100,d.pago/d.total*100);
+    const atrasada = d.venc && rest>0 && d.venc<hoje();
+    return `<div class="debt">
+      <div class="top"><b>${esc(d.nome)}</b>
+        <span>${rest<=0?'<span class="pos"><b>✔ Quitada</b></span>':`Falta <b style="color:var(--orange)">${brl(rest)}</b>`}</span></div>
+      <div class="bar"><span style="width:${pct}%"></span></div>
+      <small style="color:var(--muted)">Pago ${brl(d.pago)} de ${brl(d.total)} (${pct.toFixed(0)}%)
+        ${d.venc?` · vence ${d.venc.split("-").reverse().join("/")}`:""} ${atrasada?'<span class="late"> ⚠ vencida</span>':""}</small>
+      ${rest>0?`<div class="pay"><input id="p${d.id}" type="number" step="0.01" min="0.01" placeholder="Valor pago" inputmode="decimal">
+        <button class="ok" onclick="pagar('${d.id}')">Pagar</button></div>
+        <label style="flex-direction:row;align-items:center;gap:6px;margin-top:6px"><input id="c${d.id}" type="checkbox" checked style="width:auto"> Lançar também como despesa</label>`:""}
+      <div style="text-align:right;margin-top:6px"><button class="danger" onclick="delDiv('${d.id}')">Excluir dívida</button></div>
+    </div>`;
+  }).join("") : `<div class="empty">Nenhuma dívida cadastrada. 🎉</div>`;
+}
+render();
+</script>
+</body>
+</html>
