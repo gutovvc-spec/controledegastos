@@ -101,6 +101,12 @@ try{ var _t=localStorage.getItem("gastos-tema");
   #loginMsg{font-size:.85rem;min-height:1.2em;color:var(--red)}
   #loginMsg.info{color:var(--green)}
   button.linkbtn{background:none;color:var(--primary)}
+  button.mini{padding:6px 10px}
+  /* janela de edição */
+  #editar{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(15,23,42,.6);overflow:auto}
+  #editar.on{display:flex}
+  #editar .box{background:var(--card);border-radius:16px;padding:20px;width:100%;max-width:460px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+  #editar h2{margin:0 0 12px;font-size:1.15rem}
 </style>
 </head>
 <body>
@@ -114,6 +120,27 @@ try{ var _t=localStorage.getItem("gastos-tema");
       <div id="loginMsg"></div>
       <button type="submit" id="loginBtn">Entrar</button>
       <button type="button" class="linkbtn" id="loginTroca">Não tem conta? Criar conta</button>
+    </form>
+  </div>
+</div>
+<div id="editar">
+  <div class="box">
+    <h2>✏️ Editar lançamento</h2>
+    <form id="fEd">
+      <div class="toggle">
+        <label class="in" id="edIn"><input type="radio" name="etipo" value="receita"> ⬆ Receita</label>
+        <label class="out" id="edOut"><input type="radio" name="etipo" value="despesa"> ⬇ Despesa</label>
+      </div>
+      <label class="full">Descrição<input name="desc" required></label>
+      <label>Valor (R$)<input name="valor" type="number" step="0.01" min="0.01" required inputmode="decimal"></label>
+      <label>Categoria<select name="cat"></select></label>
+      <label>Quem?<select name="quem">
+        <option>Família</option><option>Pai</option><option>Mãe</option><option>Filho(a)</option><option>Outro</option></select></label>
+      <label>Data<input name="data" type="date" required></label>
+      <div class="full" style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="sec" id="edCancel">Cancelar</button>
+        <button type="submit">Salvar</button>
+      </div>
     </form>
   </div>
 </div>
@@ -525,7 +552,58 @@ $("#fDiv").addEventListener("submit", e=>{
 });
 
 /* ---------- Ações ---------- */
-function delTx(id){ db.tx = db.tx.filter(t=>t.id!==id); save(); enfileira("del","transacoes",{id}); render(); }
+function delTx(id){
+  const t = db.tx.find(x=>x.id===id); if(!t) return;
+  if(!confirm(`Excluir este lançamento?\n\n${t.desc} — ${brl(t.valor)}`)) return;
+  db.tx = db.tx.filter(x=>x.id!==id); save(); enfileira("del","transacoes",{id}); render();
+}
+
+/* ---------- Editar lançamento ---------- */
+const edEl = $("#editar"), fEd = $("#fEd");
+let edId = null;
+function edCats(tipo, selecionada){
+  const l = [...(tipo==="receita" ? CAT_REC : CAT_DESP)];
+  if(selecionada && !l.includes(selecionada)) l.unshift(selecionada);   // categoria antiga/personalizada continua disponível
+  fEd.cat.innerHTML = l.map(c=>`<option>${esc(c)}</option>`).join("");
+  if(selecionada) fEd.cat.value = selecionada;
+}
+function edTipo(tipo){
+  fEd.querySelectorAll('input[name="etipo"]').forEach(r=>{ r.checked = r.value===tipo; });
+  $("#edIn").className  = "in"  + (tipo==="receita" ? " on" : "");
+  $("#edOut").className = "out" + (tipo==="despesa" ? " on" : "");
+}
+function abrirEdicao(id){
+  const t = db.tx.find(x=>x.id===id); if(!t) return;
+  edId = id;
+  edTipo(t.tipo); edCats(t.tipo, t.cat);
+  fEd.desc.value = t.desc; fEd.valor.value = t.valor; fEd.data.value = t.data;
+  if(![...fEd.quem.options].some(o=>o.value===t.quem)){ const o=document.createElement("option"); o.textContent=t.quem; fEd.quem.appendChild(o); }
+  fEd.quem.value = t.quem;
+  edEl.classList.add("on");
+  setTimeout(()=>{ try{ fEd.desc.focus(); }catch(e){} }, 50);
+}
+function fecharEdicao(){ edEl.classList.remove("on"); edId = null; }
+function salvarEdicao(d){
+  const t = db.tx.find(x=>x.id===d.id); if(!t) return false;
+  if(!(d.valor>0) || !d.desc || !d.data) return false;
+  Object.assign(t, {tipo:d.tipo, desc:d.desc, valor:d.valor, cat:d.cat, quem:d.quem, data:d.data});
+  save(); enfileira("up","transacoes",t); render();
+  return true;
+}
+fEd.querySelectorAll('input[name="etipo"]').forEach(r=>r.addEventListener("change",()=>{
+  const antiga = fEd.cat.value; edTipo(r.value); edCats(r.value, null);
+  if([...fEd.cat.options].some(o=>o.value===antiga)) fEd.cat.value = antiga;
+}));
+fEd.addEventListener("submit", e=>{
+  e.preventDefault();
+  const tipo = fEd.querySelector('input[name="etipo"]:checked').value;
+  salvarEdicao({id:edId, tipo, desc:fEd.desc.value.trim(), valor:parseFloat(fEd.valor.value),
+                cat:fEd.cat.value, quem:fEd.quem.value, data:fEd.data.value});
+  fecharEdicao();
+});
+$("#edCancel").onclick = fecharEdicao;
+edEl.addEventListener("click", e=>{ if(e.target===edEl) fecharEdicao(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape" && edId) fecharEdicao(); });
 function delDiv(id){ if(confirm("Excluir esta dívida? (as despesas já lançadas continuam)")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); enfileira("del","dividas",{id}); render(); } }
 function pagar(id){
   const d = db.dividas.find(x=>x.id===id);
@@ -639,7 +717,8 @@ function render(){
     txs.map(t=>`<tr><td>${t.data.split("-").reverse().slice(0,2).join("/")}</td>
       <td>${esc(t.desc)}<br><span class="tag">${esc(t.cat)}</span> <span class="tag">${esc(t.quem)}</span></td>
       <td class="r ${t.tipo==="receita"?"pos":"neg"}"><b>${t.tipo==="receita"?"+":"-"}${brl(t.valor)}</b></td>
-      <td class="r"><button class="danger" onclick="delTx('${t.id}')" title="Excluir">✕</button></td></tr>`).join("")+`</tbody></table>`
+      <td class="r" style="white-space:nowrap"><button class="sec mini" onclick="abrirEdicao('${t.id}')" title="Editar">✏️</button>
+        <button class="danger" onclick="delTx('${t.id}')" title="Excluir">✕</button></td></tr>`).join("")+`</tbody></table>`
     : `<div class="empty">Nenhum lançamento ainda. Adicione o primeiro acima!</div>`;
 
   $("#listaDiv").innerHTML = db.dividas.length ? db.dividas.map(d=>{
