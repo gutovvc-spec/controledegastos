@@ -187,8 +187,12 @@ function normalizaIds(){
   save();
 }
 
+function fetchT(url, opts, ms=15000){
+  const c = new AbortController(); const t = setTimeout(()=>c.abort(), ms);
+  return fetch(url, {...opts, signal:c.signal}).finally(()=>clearTimeout(t));
+}
 async function authCall(path, body){
-  const r = await fetch(`${SB_URL}/auth/v1/${path}`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const r = await fetchT(`${SB_URL}/auth/v1/${path}`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify(body)});
   const j = await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error_description||j.msg||j.message||"Erro de autenticação");
   return j;
@@ -212,7 +216,7 @@ async function token(){
 }
 async function rest(method, path, body, extra){
   const t = await token();
-  const r = await fetch(`${SB_URL}/rest/v1/${path}`,{method,
+  const r = await fetchT(`${SB_URL}/rest/v1/${path}`,{method,
     headers:{apikey:SB_KEY,Authorization:"Bearer "+t,"Content-Type":"application/json",...(extra||{})},
     body: body ? JSON.stringify(body) : undefined});
   if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.message||("HTTP "+r.status)); }
@@ -228,11 +232,53 @@ function setStatus(txt, cor){ const s=$("#status"); s.textContent=txt; s.style.b
 const OFF = "rgba(220,38,38,.7)", OK = "rgba(22,163,74,.65)";
 const nuvem = () => !!FAM_EMAIL;
 
-async function remoto(fn){
-  if(!nuvem()) return;
-  setStatus("⏳ sincronizando…");
-  try{ await fn(); setStatus("☁ sincronizado",OK); }
-  catch(e){ db.sujo=true; save(); setStatus("⚠ pendente — clique p/ sincronizar",OFF); console.error(e); }
+/* ---------- Fila offline (outbox) ---------- */
+const FILA_KEY = KEY+"-fila", SEED_KEY = KEY+"-seeded";
+let fila = []; try{ fila = JSON.parse(localStorage.getItem(FILA_KEY)) || []; }catch(e){}
+const saveFila = ()=>{ try{ localStorage.setItem(FILA_KEY, JSON.stringify(fila)); }catch(e){} };
+
+function atualizaStatus(){
+  if(!nuvem()){ setStatus("💾 só neste aparelho"); return; }
+  if(navigator.onLine===false) setStatus(fila.length?`📴 offline — ${fila.length} pendente(s)`:"📴 offline", OFF);
+  else if(fila.length)         setStatus(`⚠ ${fila.length} pendente(s) — clique p/ sincronizar`, OFF);
+  else                         setStatus("☁ sincronizado", OK);
+}
+
+// op: "up" (criar/alterar) ou "del" (excluir). Só a última operação de cada item importa.
+function enfileira(op, tb, item){
+  fila = fila.filter(o=>!(o.tb===tb && o.id===item.id));
+  fila.push({op, tb, id:item.id, item: op==="up" ? {...item} : null});
+  saveFila(); atualizaStatus(); flush();
+}
+
+let enviando = false;
+async function flush(){
+  if(!nuvem() || enviando) return fila.length===0;
+  if(!fila.length) return true;
+  if(navigator.onLine===false){ atualizaStatus(); return false; }
+  enviando = true; setStatus("⏳ sincronizando…");
+  try{
+    while(fila.length){
+      const o = fila[0];
+      if(o.op==="up") await sbUpsert(o.tb, [o.tb==="transacoes" ? rowTx(o.item) : rowDiv(o.item)]);
+      else            await sbDelete(o.tb, o.id);
+      fila = fila.filter(x=>x!==o); saveFila();   // remove só o que foi enviado
+    }
+  }catch(e){ console.error(e); }
+  finally{ enviando = false; }
+  atualizaStatus();
+  return fila.length===0;
+}
+
+// reaplica o que ainda não foi enviado por cima dos dados baixados da nuvem
+function aplicaFila(){
+  fila.forEach(o=>{
+    const lista = o.tb==="transacoes" ? db.tx : db.dividas;
+    const i = lista.findIndex(x=>x.id===o.id);
+    if(o.op==="del"){ if(i>=0) lista.splice(i,1); }
+    else if(i>=0) lista[i] = {...o.item};
+    else lista.push({...o.item});
+  });
 }
 
 async function baixar(){
@@ -246,26 +292,35 @@ async function baixar(){
       parcelas:+x.parcelas||1,pagas:+x.parcelas_pagas||0,inicio:x.inicio||""}))
   };
 }
+
 async function sincronizar(){
   if(!nuvem()) return;
+  if(navigator.onLine===false){ atualizaStatus(); return; }
   setStatus("⏳ sincronizando…");
   try{
     normalizaIds();
-    let r = await baixar();
+    await flush();                       // 1º envia o que ficou pendente (inclusive exclusões)
+    let r = await baixar();              // 2º baixa o estado da nuvem
     const temLocal = db.tx.length || db.dividas.length;
-    const remotoVazio = !r.tx.length && !r.dividas.length;
-    if(temLocal && (db.sujo || remotoVazio)){
+    const primeiraVez = !localStorage.getItem(SEED_KEY);
+    if(temLocal && (db.sujo || (primeiraVez && !r.tx.length && !r.dividas.length))){
       if(db.dividas.length) await sbUpsert("dividas", db.dividas.map(rowDiv));
       if(db.tx.length)      await sbUpsert("transacoes", db.tx.map(rowTx));
       r = await baixar();
     }
-    db = {tx:r.tx, dividas:r.dividas}; save();
+    try{ localStorage.setItem(SEED_KEY,"1"); }catch(e){}
+    db = {tx:r.tx, dividas:r.dividas};
+    aplicaFila();                        // mantém alterações ainda não enviadas
+    save();
     processaParcelas();
     render();
-    setStatus("☁ sincronizado",OK);
-  }catch(e){ db.sujo=true; save(); setStatus("⚠ sem conexão — clique p/ tentar de novo",OFF); console.error(e); }
+    atualizaStatus();
+  }catch(e){ console.error(e); atualizaStatus(); }
 }
 $("#status").onclick = ()=>{ if(nuvem()) sincronizar(); };
+window.addEventListener("online",  ()=>sincronizar());
+window.addEventListener("offline", ()=>atualizaStatus());
+setInterval(()=>{ if(fila.length && navigator.onLine!==false) sincronizar(); }, 30000);
 
 /* ---------- Parcelas automáticas ---------- */
 function dataParcela(inicio, k){
@@ -300,10 +355,8 @@ function processaParcelas(){
   });
   if(mexidas.size){
     save();
-    remoto(async()=>{
-      await sbUpsert("dividas",[...mexidas].map(rowDiv));
-      if(novas.length) await sbUpsert("transacoes",novas.map(rowTx));
-    });
+    mexidas.forEach(d=>enfileira("up","dividas",d));
+    novas.forEach(t=>enfileira("up","transacoes",t));
   }
 }
 
@@ -326,7 +379,7 @@ fTx.addEventListener("submit", e=>{
     valor:parseFloat(fTx.valor.value), cat:fTx.cat.value, quem:fTx.quem.value, data:fTx.data.value
   };
   db.tx.push(novo);
-  save(); remoto(()=>sbUpsert("transacoes",[rowTx(novo)])); fTx.desc.value=""; fTx.valor.value=""; fTx.desc.focus(); render();
+  save(); enfileira("up","transacoes",novo); fTx.desc.value=""; fTx.valor.value=""; fTx.desc.focus(); render();
 });
 
 $("#fDiv").addEventListener("submit", e=>{
@@ -339,15 +392,15 @@ $("#fDiv").addEventListener("submit", e=>{
     parcelas, pagas:0, inicio,
     venc: parcelas>1 ? dataParcela(inicio,parcelas-1) : inicio};   // venc = vencimento final
   db.dividas.push(nova);
-  save(); remoto(()=>sbUpsert("dividas",[rowDiv(nova)]));
+  save(); enfileira("up","dividas",nova);
   f.reset(); f.parcelas.value=1;
   processaParcelas();
   render();
 });
 
 /* ---------- Ações ---------- */
-function delTx(id){ db.tx = db.tx.filter(t=>t.id!==id); save(); remoto(()=>sbDelete("transacoes",id)); render(); }
-function delDiv(id){ if(confirm("Excluir esta dívida? (as despesas já lançadas continuam)")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); remoto(()=>sbDelete("dividas",id)); render(); } }
+function delTx(id){ db.tx = db.tx.filter(t=>t.id!==id); save(); enfileira("del","transacoes",{id}); render(); }
+function delDiv(id){ if(confirm("Excluir esta dívida? (as despesas já lançadas continuam)")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); enfileira("del","dividas",{id}); render(); } }
 function pagar(id){
   const d = db.dividas.find(x=>x.id===id);
   const inp = document.getElementById("p"+id);
@@ -361,7 +414,7 @@ function pagar(id){
     db.tx.push(nt);
   }
   save();
-  remoto(async()=>{ await sbUpsert("dividas",[rowDiv(d)]); if(nt) await sbUpsert("transacoes",[rowTx(nt)]); });
+  enfileira("up","dividas",d); if(nt) enfileira("up","transacoes",nt);
   render();
 }
 $("#mes").addEventListener("change", e=>{ periodo=e.target.value; render(); });
@@ -488,7 +541,8 @@ function render(){
 normalizaIds();
 processaParcelas();
 render();
-if(nuvem()) sincronizar(); else setStatus("💾 só neste aparelho");
+atualizaStatus();
+if(nuvem()) sincronizar();
 // ao voltar para a aba/app, confere se virou o dia/mês e há parcelas novas
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ processaParcelas(); render(); if(nuvem()) sincronizar(); } });
 
