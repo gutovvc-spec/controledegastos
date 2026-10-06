@@ -60,16 +60,7 @@
   .tools select{width:auto;background:#fff}
   header button{background:rgba(255,255,255,.2)}
   .badge{font-size:.8rem;padding:6px 10px;border-radius:99px;background:rgba(255,255,255,.2);cursor:pointer;white-space:nowrap}
-  .overlay{position:fixed;inset:0;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
-  .overlay[hidden]{display:none}
-  .overlay .box{background:#fff;border-radius:16px;padding:22px;max-width:380px;width:100%}
-  .overlay h2{margin:0 0 6px}
-  .overlay p{margin:0 0 14px;color:var(--muted);font-size:.9rem}
-  .overlay form{grid-template-columns:1fr}
-  .overlay .row{display:flex;gap:8px}
-  .overlay .row button{flex:1}
-  #lgMsg{color:var(--red);font-size:.85rem;min-height:1.2em;margin:8px 0 0}
-  .link{background:none;color:var(--muted);text-decoration:underline;font-weight:400;width:100%;margin-top:6px}
+  .hint{font-size:.75rem;color:var(--muted);grid-column:1/-1;margin:-4px 0 0}
 </style>
 </head>
 <body>
@@ -82,27 +73,9 @@
       <button id="btnExp">⬇ Backup</button>
       <button id="btnImp">⬆ Restaurar</button>
       <input type="file" id="file" accept=".json" hidden>
-      <button id="btnConta"></button>
     </div>
   </div>
 </header>
-
-<div id="login" class="overlay" hidden>
-  <div class="box">
-    <h2>☁ Entrar na conta da família</h2>
-    <p>Todos da casa usam o mesmo e-mail e senha para ver os mesmos dados em qualquer aparelho.</p>
-    <form id="lgForm">
-      <label>E-mail<input id="lgEmail" type="email" required autocomplete="username"></label>
-      <label>Senha (mínimo 6 caracteres)<input id="lgSenha" type="password" required minlength="6" autocomplete="current-password"></label>
-      <div class="row">
-        <button type="submit">Entrar</button>
-        <button type="button" class="sec" id="lgCriar">Criar conta</button>
-      </div>
-    </form>
-    <p id="lgMsg"></p>
-    <button type="button" class="link" id="lgLocal">Usar sem conta (dados só neste aparelho)</button>
-  </div>
-</div>
 
 <main class="grid">
   <section class="grid cards">
@@ -150,8 +123,10 @@
       <form id="fDiv" style="margin-bottom:14px">
         <label>Quem devemos / o quê<input name="nome" required placeholder="Ex.: Cartão, Empréstimo"></label>
         <label>Valor total (R$)<input name="total" type="number" step="0.01" min="0.01" required inputmode="decimal"></label>
-        <label>Vencimento<input name="venc" type="date"></label>
-        <label style="justify-content:flex-end"><button class="ok" type="submit">Adicionar dívida</button></label>
+        <label>Nº de parcelas<input name="parcelas" type="number" min="1" max="360" value="1" required inputmode="numeric"></label>
+        <label>Vencimento (1ª parcela)<input name="venc" type="date"></label>
+        <p class="hint">Com 2 ou mais parcelas e a data do 1º vencimento, o sistema lança automaticamente uma despesa por mês, no dia do vencimento, até quitar tudo.</p>
+        <label class="full" style="justify-content:flex-end"><button class="ok" type="submit">Adicionar dívida</button></label>
       </form>
       <div id="listaDiv"></div>
     </div>
@@ -165,10 +140,11 @@ const CORES = ["#4f46e5","#16a34a","#ea580c","#0ea5e9","#db2777","#ca8a04","#7c3
 const KEY = "gastos-familia-v1";
 const $ = s => document.querySelector(s);
 const brl = v => v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const round2 = x => Math.round(x*100)/100;
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
   : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&3|8)).toString(16);});
 const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const hoje = () => new Date().toISOString().slice(0,10);
+const hoje = () => new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
 
 let db = {tx:[], dividas:[]};
 try { db = JSON.parse(localStorage.getItem(KEY)) || db; } catch(e){}
@@ -176,7 +152,13 @@ const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(
 
 let periodo = "todos";
 
-/* ---------- Supabase ---------- */
+/* ---------- Supabase (conta única, sem tela de login) ----------
+   Para sincronizar entre o seu celular e o da sua esposa, preencha abaixo o
+   e-mail e a senha da conta que você já criou no Supabase. Eles entram
+   automaticamente. Se deixar vazio, os dados ficam só neste aparelho. */
+const FAM_EMAIL = "gutovvc@gmail.com";   // ex.: "familia@email.com"
+const FAM_SENHA = "12345678";   // ex.: "minhasenha"
+
 const SB_URL = "https://uodfmqddomlrwcupxhev.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZGZtcWRkb21scndjdXB4aGV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNTQ1MDgsImV4cCI6MjEwNjgzMDUwOH0.duALvVJLr5oSH6rCDpElu8QbDbREU5spI_5cfmatsJw";
 
@@ -186,7 +168,13 @@ const saveSess = ()=>{ try{ sess ? localStorage.setItem(KEY+"-sess",JSON.stringi
 const ehUuid = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 function normalizaIds(){
   db.tx.forEach(t=>{ if(!ehUuid(t.id)) t.id=uid(); });
-  db.dividas.forEach(d=>{ if(!ehUuid(d.id)) d.id=uid(); });
+  db.dividas.forEach(d=>{
+    if(!ehUuid(d.id)) d.id=uid();
+    d.parcelas = +d.parcelas || 1;
+    d.pagas = +d.pagas || 0;
+    d.inicio = d.inicio || "";
+    d.venc = d.venc || "";
+  });
   save();
 }
 
@@ -196,17 +184,20 @@ async function authCall(path, body){
   if(!r.ok) throw new Error(j.error_description||j.msg||j.message||"Erro de autenticação");
   return j;
 }
-function setSess(j, email){
+function setSess(j){
   sess = {access_token:j.access_token, refresh_token:j.refresh_token,
-          expires_at:Date.now()+(j.expires_in||3600)*1000-60000,
-          email: email || (j.user && j.user.email) || (sess && sess.email) || ""};
+          expires_at:Date.now()+(j.expires_in||3600)*1000-60000};
   saveSess();
 }
+async function loginFamilia(){
+  setSess(await authCall("token?grant_type=password",{email:FAM_EMAIL,password:FAM_SENHA}));
+}
 async function token(){
-  if(!sess) throw new Error("Sem sessão");
-  if(Date.now()>sess.expires_at){
+  if(!FAM_EMAIL) throw new Error("Sem conta configurada");
+  if(!sess) await loginFamilia();
+  else if(Date.now()>sess.expires_at){
     try{ setSess(await authCall("token?grant_type=refresh_token",{refresh_token:sess.refresh_token})); }
-    catch(e){ if(navigator.onLine){ sess=null; saveSess(); mostraConta(); $("#login").hidden=false; } throw e; }
+    catch(e){ await loginFamilia(); }
   }
   return sess.access_token;
 }
@@ -221,14 +212,15 @@ async function rest(method, path, body, extra){
 const sbUpsert = (tb,rows)=>rest("POST",tb+"?on_conflict=id",rows,{Prefer:"resolution=merge-duplicates,return=minimal"});
 const sbDelete = (tb,id)=>rest("DELETE",`${tb}?id=eq.${id}`,null,{Prefer:"return=minimal"});
 const rowTx  = t=>({id:t.id,tipo:t.tipo,descricao:t.desc,valor:t.valor,categoria:t.cat,quem:t.quem,data:t.data});
-const rowDiv = d=>({id:d.id,nome:d.nome,total:d.total,pago:d.pago,vencimento:d.venc||null});
+const rowDiv = d=>({id:d.id,nome:d.nome,total:d.total,pago:d.pago,vencimento:d.venc||null,
+                    parcelas:d.parcelas||1,parcelas_pagas:d.pagas||0,inicio:d.inicio||null});
 
 function setStatus(txt, cor){ const s=$("#status"); s.textContent=txt; s.style.background=cor||"rgba(255,255,255,.2)"; }
 const OFF = "rgba(220,38,38,.7)", OK = "rgba(22,163,74,.65)";
+const nuvem = () => !!FAM_EMAIL;
 
-// executa uma gravação na nuvem; se falhar, marca para reenviar depois
 async function remoto(fn){
-  if(!sess) return;
+  if(!nuvem()) return;
   setStatus("⏳ sincronizando…");
   try{ await fn(); setStatus("☁ sincronizado",OK); }
   catch(e){ db.sujo=true; save(); setStatus("⚠ pendente — clique p/ sincronizar",OFF); console.error(e); }
@@ -241,59 +233,70 @@ async function baixar(){
   ]);
   return {
     tx:(tx||[]).map(x=>({id:x.id,tipo:x.tipo,desc:x.descricao,valor:+x.valor,cat:x.categoria,quem:x.quem||"Família",data:x.data})),
-    dividas:(dv||[]).map(x=>({id:x.id,nome:x.nome,total:+x.total,pago:+x.pago,venc:x.vencimento||""}))
+    dividas:(dv||[]).map(x=>({id:x.id,nome:x.nome,total:+x.total,pago:+x.pago,venc:x.vencimento||"",
+      parcelas:+x.parcelas||1,pagas:+x.parcelas_pagas||0,inicio:x.inicio||""}))
   };
 }
 async function sincronizar(){
-  if(!sess) return;
+  if(!nuvem()) return;
   setStatus("⏳ sincronizando…");
   try{
     normalizaIds();
     let r = await baixar();
     const temLocal = db.tx.length || db.dividas.length;
     const remotoVazio = !r.tx.length && !r.dividas.length;
-    if(temLocal && (db.sujo || remotoVazio)){      // envia o que está só neste aparelho
+    if(temLocal && (db.sujo || remotoVazio)){
       if(db.dividas.length) await sbUpsert("dividas", db.dividas.map(rowDiv));
       if(db.tx.length)      await sbUpsert("transacoes", db.tx.map(rowTx));
       r = await baixar();
     }
-    db = {tx:r.tx, dividas:r.dividas}; save(); render();
+    db = {tx:r.tx, dividas:r.dividas}; save();
+    processaParcelas();
+    render();
     setStatus("☁ sincronizado",OK);
   }catch(e){ db.sujo=true; save(); setStatus("⚠ sem conexão — clique p/ tentar de novo",OFF); console.error(e); }
 }
+$("#status").onclick = ()=>{ if(nuvem()) sincronizar(); };
 
-/* ----- login ----- */
-function mostraConta(){
-  $("#btnConta").textContent = sess ? "Sair ("+(sess.email||"conta")+")" : "☁ Entrar";
-  if(!sess) setStatus("💾 só neste aparelho");
+/* ---------- Parcelas automáticas ---------- */
+function dataParcela(inicio, k){
+  const [y,m,dd] = inicio.split("-").map(Number);
+  const tot = (m-1)+k, ny = y+Math.floor(tot/12), nm = tot%12;
+  const ultimo = new Date(ny,nm+1,0).getDate();
+  const dia = Math.min(dd,ultimo);
+  return `${ny}-${String(nm+1).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
 }
-async function entrar(criar){
-  const email=$("#lgEmail").value.trim(), password=$("#lgSenha").value, msg=$("#lgMsg");
-  msg.style.color="var(--red)"; msg.textContent="";
-  try{
-    if(criar){
-      const j = await authCall("signup",{email,password});
-      if(!j.access_token){ msg.style.color="var(--green)"; msg.textContent="Conta criada! Confirme o e-mail que enviamos e depois clique em Entrar."; return; }
-      setSess(j,email);
-    } else setSess(await authCall("token?grant_type=password",{email,password}), email);
-    try{ localStorage.removeItem(KEY+"-local"); }catch(e){}
-    $("#login").hidden=true; mostraConta(); sincronizar();
-  }catch(e){
-    const m=e.message||"";
-    msg.textContent = /invalid login/i.test(m) ? "E-mail ou senha incorretos." :
-                      /already registered/i.test(m) ? "Esse e-mail já tem conta. Use Entrar." :
-                      /not confirmed/i.test(m) ? "Confirme seu e-mail antes de entrar." : m;
+const valorParcela = d => round2(d.total/d.parcelas);
+// id determinístico por parcela: os dois aparelhos geram o mesmo id, então nunca duplica
+const idParcela = (did,k) => did.slice(0,24)+"b"+k.toString(16).padStart(11,"0");
+
+function processaParcelas(){
+  const novas=[], mexidas=new Set(), h=hoje();
+  db.dividas.forEach(d=>{
+    if(!(d.parcelas>1) || !d.inicio) return;
+    while(d.pagas<d.parcelas){
+      const k = d.pagas, dt = dataParcela(d.inicio,k);
+      if(dt>h) break;
+      const restante = round2(d.total-d.pago);
+      if(restante<=0){ d.pagas=d.parcelas; mexidas.add(d); break; }
+      const tid = idParcela(d.id,k);
+      if(!db.tx.some(t=>t.id===tid)){
+        const v = (k===d.parcelas-1) ? restante : Math.min(restante,valorParcela(d));
+        const t = {id:tid,tipo:"despesa",desc:`${d.nome} (parcela ${k+1}/${d.parcelas})`,valor:v,cat:"💳 Dívidas",quem:"Família",data:dt};
+        db.tx.push(t); novas.push(t);
+        d.pago = round2(d.pago+v);
+      }
+      d.pagas++; mexidas.add(d);
+    }
+  });
+  if(mexidas.size){
+    save();
+    remoto(async()=>{
+      await sbUpsert("dividas",[...mexidas].map(rowDiv));
+      if(novas.length) await sbUpsert("transacoes",novas.map(rowTx));
+    });
   }
 }
-$("#lgForm").addEventListener("submit", e=>{ e.preventDefault(); entrar(false); });
-$("#lgCriar").onclick = ()=>{ if($("#lgForm").reportValidity()) entrar(true); };
-$("#lgLocal").onclick = ()=>{ try{ localStorage.setItem(KEY+"-local","1"); }catch(e){} $("#login").hidden=true; mostraConta(); };
-$("#btnConta").onclick = ()=>{
-  if(!sess){ $("#login").hidden=false; return; }
-  if(db.sujo && !confirm("Há alterações ainda não enviadas para a nuvem. Sair mesmo assim?")) return;
-  sess=null; saveSess(); db={tx:[],dividas:[]}; save(); mostraConta(); render(); $("#login").hidden=false;
-};
-$("#status").onclick = ()=>{ if(sess) sincronizar(); };
 
 /* ---------- Formulário ---------- */
 const fTx = $("#fTx");
@@ -320,21 +323,29 @@ fTx.addEventListener("submit", e=>{
 $("#fDiv").addEventListener("submit", e=>{
   e.preventDefault();
   const f = e.target;
-  const nova = {id:uid(), nome:f.nome.value.trim(), total:parseFloat(f.total.value), pago:0, venc:f.venc.value};
+  const parcelas = Math.max(1, parseInt(f.parcelas.value)||1);
+  const inicio = f.venc.value;
+  if(parcelas>1 && !inicio){ alert("Informe a data do vencimento da 1ª parcela."); return; }
+  const nova = {id:uid(), nome:f.nome.value.trim(), total:parseFloat(f.total.value), pago:0,
+    parcelas, pagas:0, inicio,
+    venc: parcelas>1 ? dataParcela(inicio,parcelas-1) : inicio};   // venc = vencimento final
   db.dividas.push(nova);
-  save(); remoto(()=>sbUpsert("dividas",[rowDiv(nova)])); f.reset(); render();
+  save(); remoto(()=>sbUpsert("dividas",[rowDiv(nova)]));
+  f.reset(); f.parcelas.value=1;
+  processaParcelas();
+  render();
 });
 
 /* ---------- Ações ---------- */
 function delTx(id){ db.tx = db.tx.filter(t=>t.id!==id); save(); remoto(()=>sbDelete("transacoes",id)); render(); }
-function delDiv(id){ if(confirm("Excluir esta dívida?")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); remoto(()=>sbDelete("dividas",id)); render(); } }
+function delDiv(id){ if(confirm("Excluir esta dívida? (as despesas já lançadas continuam)")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); remoto(()=>sbDelete("dividas",id)); render(); } }
 function pagar(id){
   const d = db.dividas.find(x=>x.id===id);
   const inp = document.getElementById("p"+id);
   let v = parseFloat(inp.value);
   if(!(v>0)) return;
-  v = Math.min(v, d.total-d.pago);
-  d.pago += v;
+  v = Math.min(v, round2(d.total-d.pago));
+  d.pago = round2(d.pago+v);
   let nt = null;
   if(document.getElementById("c"+id).checked){
     nt = {id:uid(),tipo:"despesa",desc:"Pagamento: "+d.nome,valor:v,cat:"💳 Dívidas",quem:"Família",data:hoje()};
@@ -356,7 +367,7 @@ $("#btnImp").onclick = ()=>$("#file").click();
 $("#file").onchange = e=>{
   const f = e.target.files[0]; if(!f) return;
   const r = new FileReader();
-  r.onload = ()=>{ try{ const d=JSON.parse(r.result); if(d.tx&&d.dividas){db={tx:d.tx,dividas:d.dividas,sujo:true};normalizaIds();render();if(sess)sincronizar();alert("Backup restaurado!");}else throw 0; }catch{ alert("Arquivo inválido."); } };
+  r.onload = ()=>{ try{ const d=JSON.parse(r.result); if(d.tx&&d.dividas){db={tx:d.tx,dividas:d.dividas,sujo:true};normalizaIds();render();if(nuvem())sincronizar();alert("Backup restaurado!");}else throw 0; }catch{ alert("Arquivo inválido."); } };
   r.readAsText(f); e.target.value="";
 };
 
@@ -381,7 +392,7 @@ function pizza(dados){
 
 function barras(){
   const meses=[]; const d=new Date(); d.setDate(1);
-  for(let i=5;i>=0;i--){ const x=new Date(d.getFullYear(),d.getMonth()-i,1); meses.push(x.toISOString().slice(0,7)); }
+  for(let i=5;i>=0;i--){ const x=new Date(d.getFullYear(),d.getMonth()-i,1); meses.push(x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")); }
   const dados = meses.map(m=>({
     m, r:db.tx.filter(t=>t.tipo==="receita"&&t.data.startsWith(m)).reduce((s,t)=>s+t.valor,0),
        d:db.tx.filter(t=>t.tipo==="despesa"&&t.data.startsWith(m)).reduce((s,t)=>s+t.valor,0)
@@ -428,14 +439,12 @@ function render(){
   const sd=$("#sSaldo"); sd.textContent=brl(rec-desp); sd.className=(rec-desp>=0?"pos":"neg");
   $("#sDiv").textContent=brl(aberto);
 
-  // pizza
   const porCat={};
   txs.filter(t=>t.tipo==="despesa").forEach(t=>porCat[t.cat]=(porCat[t.cat]||0)+t.valor);
   const dadosP=Object.entries(porCat).map(([n,v])=>({n,v})).sort((a,b)=>b.v-a.v);
   $("#chPizza").innerHTML=pizza(dadosP);
   $("#chBarras").innerHTML=barras();
 
-  // lançamentos
   $("#listaTx").innerHTML = txs.length ? `<table><thead><tr><th>Data</th><th>Descrição</th><th class="r">Valor</th><th></th></tr></thead><tbody>`+
     txs.map(t=>`<tr><td>${t.data.split("-").reverse().slice(0,2).join("/")}</td>
       <td>${esc(t.desc)}<br><span class="tag">${esc(t.cat)}</span> <span class="tag">${esc(t.quem)}</span></td>
@@ -443,27 +452,36 @@ function render(){
       <td class="r"><button class="danger" onclick="delTx('${t.id}')" title="Excluir">✕</button></td></tr>`).join("")+`</tbody></table>`
     : `<div class="empty">Nenhum lançamento ainda. Adicione o primeiro acima!</div>`;
 
-  // dívidas
   $("#listaDiv").innerHTML = db.dividas.length ? db.dividas.map(d=>{
-    const rest=d.total-d.pago, pct=Math.min(100,d.pago/d.total*100);
-    const atrasada = d.venc && rest>0 && d.venc<hoje();
+    const rest=round2(d.total-d.pago), pct=Math.min(100,d.pago/d.total*100);
+    const parcelado = d.parcelas>1 && d.inicio;
+    const atrasada = !parcelado && d.venc && rest>0 && d.venc<hoje();
+    let infoParcela = "";
+    if(parcelado){
+      const prox = (rest>0 && d.pagas<d.parcelas) ? ` · próxima: ${dataParcela(d.inicio,d.pagas).split("-").reverse().join("/")} (${brl(Math.min(rest,valorParcela(d)))})` : "";
+      infoParcela = `<br>🔁 ${d.pagas}/${d.parcelas} parcelas de ${brl(valorParcela(d))} debitadas${prox}`;
+    }
     return `<div class="debt">
       <div class="top"><b>${esc(d.nome)}</b>
         <span>${rest<=0?'<span class="pos"><b>✔ Quitada</b></span>':`Falta <b style="color:var(--orange)">${brl(rest)}</b>`}</span></div>
       <div class="bar"><span style="width:${pct}%"></span></div>
       <small style="color:var(--muted)">Pago ${brl(d.pago)} de ${brl(d.total)} (${pct.toFixed(0)}%)
-        ${d.venc?` · vence ${d.venc.split("-").reverse().join("/")}`:""} ${atrasada?'<span class="late"> ⚠ vencida</span>':""}</small>
-      ${rest>0?`<div class="pay"><input id="p${d.id}" type="number" step="0.01" min="0.01" placeholder="Valor pago" inputmode="decimal">
+        ${d.venc?` · ${parcelado?"último venc.":"vence"} ${d.venc.split("-").reverse().join("/")}`:""} ${atrasada?'<span class="late"> ⚠ vencida</span>':""}${infoParcela}</small>
+      ${rest>0?`<div class="pay"><input id="p${d.id}" type="number" step="0.01" min="0.01" placeholder="${parcelado?"Pagamento extra (antecipar)":"Valor pago"}" inputmode="decimal">
         <button class="ok" onclick="pagar('${d.id}')">Pagar</button></div>
         <label style="flex-direction:row;align-items:center;gap:6px;margin-top:6px"><input id="c${d.id}" type="checkbox" checked style="width:auto"> Lançar também como despesa</label>`:""}
       <div style="text-align:right;margin-top:6px"><button class="danger" onclick="delDiv('${d.id}')">Excluir dívida</button></div>
     </div>`;
   }).join("") : `<div class="empty">Nenhuma dívida cadastrada. 🎉</div>`;
 }
+
+/* ---------- Início ---------- */
+normalizaIds();
+processaParcelas();
 render();
-mostraConta();
-if(sess){ sincronizar(); }
-else if(localStorage.getItem(KEY+"-local")!=="1"){ $("#login").hidden=false; }
+if(nuvem()) sincronizar(); else setStatus("💾 só neste aparelho");
+// ao voltar para a aba/app, confere se virou o dia/mês e há parcelas novas
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ processaParcelas(); render(); if(nuvem()) sincronizar(); } });
 </script>
 </body>
 </html>
