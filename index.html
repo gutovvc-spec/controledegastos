@@ -59,6 +59,17 @@
   .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .tools select{width:auto;background:#fff}
   header button{background:rgba(255,255,255,.2)}
+  .badge{font-size:.8rem;padding:6px 10px;border-radius:99px;background:rgba(255,255,255,.2);cursor:pointer;white-space:nowrap}
+  .overlay{position:fixed;inset:0;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+  .overlay[hidden]{display:none}
+  .overlay .box{background:#fff;border-radius:16px;padding:22px;max-width:380px;width:100%}
+  .overlay h2{margin:0 0 6px}
+  .overlay p{margin:0 0 14px;color:var(--muted);font-size:.9rem}
+  .overlay form{grid-template-columns:1fr}
+  .overlay .row{display:flex;gap:8px}
+  .overlay .row button{flex:1}
+  #lgMsg{color:var(--red);font-size:.85rem;min-height:1.2em;margin:8px 0 0}
+  .link{background:none;color:var(--muted);text-decoration:underline;font-weight:400;width:100%;margin-top:6px}
 </style>
 </head>
 <body>
@@ -66,13 +77,32 @@
   <div class="wrap">
     <h1>💰 Controle de Gastos da Família</h1>
     <div class="tools">
+      <span id="status" class="badge" title="Clique para sincronizar"></span>
       <select id="mes" title="Período"></select>
       <button id="btnExp">⬇ Backup</button>
       <button id="btnImp">⬆ Restaurar</button>
       <input type="file" id="file" accept=".json" hidden>
+      <button id="btnConta"></button>
     </div>
   </div>
 </header>
+
+<div id="login" class="overlay" hidden>
+  <div class="box">
+    <h2>☁ Entrar na conta da família</h2>
+    <p>Todos da casa usam o mesmo e-mail e senha para ver os mesmos dados em qualquer aparelho.</p>
+    <form id="lgForm">
+      <label>E-mail<input id="lgEmail" type="email" required autocomplete="username"></label>
+      <label>Senha (mínimo 6 caracteres)<input id="lgSenha" type="password" required minlength="6" autocomplete="current-password"></label>
+      <div class="row">
+        <button type="submit">Entrar</button>
+        <button type="button" class="sec" id="lgCriar">Criar conta</button>
+      </div>
+    </form>
+    <p id="lgMsg"></p>
+    <button type="button" class="link" id="lgLocal">Usar sem conta (dados só neste aparelho)</button>
+  </div>
+</div>
 
 <main class="grid">
   <section class="grid cards">
@@ -135,7 +165,8 @@ const CORES = ["#4f46e5","#16a34a","#ea580c","#0ea5e9","#db2777","#ca8a04","#7c3
 const KEY = "gastos-familia-v1";
 const $ = s => document.querySelector(s);
 const brl = v => v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
-const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+  : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&3|8)).toString(16);});
 const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const hoje = () => new Date().toISOString().slice(0,10);
 
@@ -144,6 +175,125 @@ try { db = JSON.parse(localStorage.getItem(KEY)) || db; } catch(e){}
 const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){} };
 
 let periodo = "todos";
+
+/* ---------- Supabase ---------- */
+const SB_URL = "https://uodfmqddomlrwcupxhev.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZGZtcWRkb21scndjdXB4aGV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNTQ1MDgsImV4cCI6MjEwNjgzMDUwOH0.duALvVJLr5oSH6rCDpElu8QbDbREU5spI_5cfmatsJw";
+
+let sess = null; try{ sess = JSON.parse(localStorage.getItem(KEY+"-sess")); }catch(e){}
+const saveSess = ()=>{ try{ sess ? localStorage.setItem(KEY+"-sess",JSON.stringify(sess)) : localStorage.removeItem(KEY+"-sess"); }catch(e){} };
+
+const ehUuid = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+function normalizaIds(){
+  db.tx.forEach(t=>{ if(!ehUuid(t.id)) t.id=uid(); });
+  db.dividas.forEach(d=>{ if(!ehUuid(d.id)) d.id=uid(); });
+  save();
+}
+
+async function authCall(path, body){
+  const r = await fetch(`${SB_URL}/auth/v1/${path}`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error_description||j.msg||j.message||"Erro de autenticação");
+  return j;
+}
+function setSess(j, email){
+  sess = {access_token:j.access_token, refresh_token:j.refresh_token,
+          expires_at:Date.now()+(j.expires_in||3600)*1000-60000,
+          email: email || (j.user && j.user.email) || (sess && sess.email) || ""};
+  saveSess();
+}
+async function token(){
+  if(!sess) throw new Error("Sem sessão");
+  if(Date.now()>sess.expires_at){
+    try{ setSess(await authCall("token?grant_type=refresh_token",{refresh_token:sess.refresh_token})); }
+    catch(e){ if(navigator.onLine){ sess=null; saveSess(); mostraConta(); $("#login").hidden=false; } throw e; }
+  }
+  return sess.access_token;
+}
+async function rest(method, path, body, extra){
+  const t = await token();
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`,{method,
+    headers:{apikey:SB_KEY,Authorization:"Bearer "+t,"Content-Type":"application/json",...(extra||{})},
+    body: body ? JSON.stringify(body) : undefined});
+  if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.message||("HTTP "+r.status)); }
+  return r.json().catch(()=>null);
+}
+const sbUpsert = (tb,rows)=>rest("POST",tb+"?on_conflict=id",rows,{Prefer:"resolution=merge-duplicates,return=minimal"});
+const sbDelete = (tb,id)=>rest("DELETE",`${tb}?id=eq.${id}`,null,{Prefer:"return=minimal"});
+const rowTx  = t=>({id:t.id,tipo:t.tipo,descricao:t.desc,valor:t.valor,categoria:t.cat,quem:t.quem,data:t.data});
+const rowDiv = d=>({id:d.id,nome:d.nome,total:d.total,pago:d.pago,vencimento:d.venc||null});
+
+function setStatus(txt, cor){ const s=$("#status"); s.textContent=txt; s.style.background=cor||"rgba(255,255,255,.2)"; }
+const OFF = "rgba(220,38,38,.7)", OK = "rgba(22,163,74,.65)";
+
+// executa uma gravação na nuvem; se falhar, marca para reenviar depois
+async function remoto(fn){
+  if(!sess) return;
+  setStatus("⏳ sincronizando…");
+  try{ await fn(); setStatus("☁ sincronizado",OK); }
+  catch(e){ db.sujo=true; save(); setStatus("⚠ pendente — clique p/ sincronizar",OFF); console.error(e); }
+}
+
+async function baixar(){
+  const [tx,dv] = await Promise.all([
+    rest("GET","transacoes?select=*&order=data.desc&limit=5000"),
+    rest("GET","dividas?select=*&order=created_at.asc")
+  ]);
+  return {
+    tx:(tx||[]).map(x=>({id:x.id,tipo:x.tipo,desc:x.descricao,valor:+x.valor,cat:x.categoria,quem:x.quem||"Família",data:x.data})),
+    dividas:(dv||[]).map(x=>({id:x.id,nome:x.nome,total:+x.total,pago:+x.pago,venc:x.vencimento||""}))
+  };
+}
+async function sincronizar(){
+  if(!sess) return;
+  setStatus("⏳ sincronizando…");
+  try{
+    normalizaIds();
+    let r = await baixar();
+    const temLocal = db.tx.length || db.dividas.length;
+    const remotoVazio = !r.tx.length && !r.dividas.length;
+    if(temLocal && (db.sujo || remotoVazio)){      // envia o que está só neste aparelho
+      if(db.dividas.length) await sbUpsert("dividas", db.dividas.map(rowDiv));
+      if(db.tx.length)      await sbUpsert("transacoes", db.tx.map(rowTx));
+      r = await baixar();
+    }
+    db = {tx:r.tx, dividas:r.dividas}; save(); render();
+    setStatus("☁ sincronizado",OK);
+  }catch(e){ db.sujo=true; save(); setStatus("⚠ sem conexão — clique p/ tentar de novo",OFF); console.error(e); }
+}
+
+/* ----- login ----- */
+function mostraConta(){
+  $("#btnConta").textContent = sess ? "Sair ("+(sess.email||"conta")+")" : "☁ Entrar";
+  if(!sess) setStatus("💾 só neste aparelho");
+}
+async function entrar(criar){
+  const email=$("#lgEmail").value.trim(), password=$("#lgSenha").value, msg=$("#lgMsg");
+  msg.style.color="var(--red)"; msg.textContent="";
+  try{
+    if(criar){
+      const j = await authCall("signup",{email,password});
+      if(!j.access_token){ msg.style.color="var(--green)"; msg.textContent="Conta criada! Confirme o e-mail que enviamos e depois clique em Entrar."; return; }
+      setSess(j,email);
+    } else setSess(await authCall("token?grant_type=password",{email,password}), email);
+    try{ localStorage.removeItem(KEY+"-local"); }catch(e){}
+    $("#login").hidden=true; mostraConta(); sincronizar();
+  }catch(e){
+    const m=e.message||"";
+    msg.textContent = /invalid login/i.test(m) ? "E-mail ou senha incorretos." :
+                      /already registered/i.test(m) ? "Esse e-mail já tem conta. Use Entrar." :
+                      /not confirmed/i.test(m) ? "Confirme seu e-mail antes de entrar." : m;
+  }
+}
+$("#lgForm").addEventListener("submit", e=>{ e.preventDefault(); entrar(false); });
+$("#lgCriar").onclick = ()=>{ if($("#lgForm").reportValidity()) entrar(true); };
+$("#lgLocal").onclick = ()=>{ try{ localStorage.setItem(KEY+"-local","1"); }catch(e){} $("#login").hidden=true; mostraConta(); };
+$("#btnConta").onclick = ()=>{
+  if(!sess){ $("#login").hidden=false; return; }
+  if(db.sujo && !confirm("Há alterações ainda não enviadas para a nuvem. Sair mesmo assim?")) return;
+  sess=null; saveSess(); db={tx:[],dividas:[]}; save(); mostraConta(); render(); $("#login").hidden=false;
+};
+$("#status").onclick = ()=>{ if(sess) sincronizar(); };
 
 /* ---------- Formulário ---------- */
 const fTx = $("#fTx");
@@ -159,23 +309,25 @@ fillCats();
 
 fTx.addEventListener("submit", e=>{
   e.preventDefault();
-  db.tx.push({
+  const novo = {
     id:uid(), tipo:fTx.tipo.value, desc:fTx.desc.value.trim(),
     valor:parseFloat(fTx.valor.value), cat:fTx.cat.value, quem:fTx.quem.value, data:fTx.data.value
-  });
-  save(); fTx.desc.value=""; fTx.valor.value=""; fTx.desc.focus(); render();
+  };
+  db.tx.push(novo);
+  save(); remoto(()=>sbUpsert("transacoes",[rowTx(novo)])); fTx.desc.value=""; fTx.valor.value=""; fTx.desc.focus(); render();
 });
 
 $("#fDiv").addEventListener("submit", e=>{
   e.preventDefault();
   const f = e.target;
-  db.dividas.push({id:uid(), nome:f.nome.value.trim(), total:parseFloat(f.total.value), pago:0, venc:f.venc.value});
-  save(); f.reset(); render();
+  const nova = {id:uid(), nome:f.nome.value.trim(), total:parseFloat(f.total.value), pago:0, venc:f.venc.value};
+  db.dividas.push(nova);
+  save(); remoto(()=>sbUpsert("dividas",[rowDiv(nova)])); f.reset(); render();
 });
 
 /* ---------- Ações ---------- */
-function delTx(id){ db.tx = db.tx.filter(t=>t.id!==id); save(); render(); }
-function delDiv(id){ if(confirm("Excluir esta dívida?")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); render(); } }
+function delTx(id){ db.tx = db.tx.filter(t=>t.id!==id); save(); remoto(()=>sbDelete("transacoes",id)); render(); }
+function delDiv(id){ if(confirm("Excluir esta dívida?")){ db.dividas = db.dividas.filter(d=>d.id!==id); save(); remoto(()=>sbDelete("dividas",id)); render(); } }
 function pagar(id){
   const d = db.dividas.find(x=>x.id===id);
   const inp = document.getElementById("p"+id);
@@ -183,10 +335,14 @@ function pagar(id){
   if(!(v>0)) return;
   v = Math.min(v, d.total-d.pago);
   d.pago += v;
+  let nt = null;
   if(document.getElementById("c"+id).checked){
-    db.tx.push({id:uid(),tipo:"despesa",desc:"Pagamento: "+d.nome,valor:v,cat:"💳 Dívidas",quem:"Família",data:hoje()});
+    nt = {id:uid(),tipo:"despesa",desc:"Pagamento: "+d.nome,valor:v,cat:"💳 Dívidas",quem:"Família",data:hoje()};
+    db.tx.push(nt);
   }
-  save(); render();
+  save();
+  remoto(async()=>{ await sbUpsert("dividas",[rowDiv(d)]); if(nt) await sbUpsert("transacoes",[rowTx(nt)]); });
+  render();
 }
 $("#mes").addEventListener("change", e=>{ periodo=e.target.value; render(); });
 
@@ -200,7 +356,7 @@ $("#btnImp").onclick = ()=>$("#file").click();
 $("#file").onchange = e=>{
   const f = e.target.files[0]; if(!f) return;
   const r = new FileReader();
-  r.onload = ()=>{ try{ const d=JSON.parse(r.result); if(d.tx&&d.dividas){db=d;save();render();alert("Backup restaurado!");}else throw 0; }catch{ alert("Arquivo inválido."); } };
+  r.onload = ()=>{ try{ const d=JSON.parse(r.result); if(d.tx&&d.dividas){db={tx:d.tx,dividas:d.dividas,sujo:true};normalizaIds();render();if(sess)sincronizar();alert("Backup restaurado!");}else throw 0; }catch{ alert("Arquivo inválido."); } };
   r.readAsText(f); e.target.value="";
 };
 
@@ -305,6 +461,9 @@ function render(){
   }).join("") : `<div class="empty">Nenhuma dívida cadastrada. 🎉</div>`;
 }
 render();
+mostraConta();
+if(sess){ sincronizar(); }
+else if(localStorage.getItem(KEY+"-local")!=="1"){ $("#login").hidden=false; }
 </script>
 </body>
 </html>
