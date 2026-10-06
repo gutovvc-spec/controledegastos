@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Controle de Gastos da Família</title>
+<meta name="theme-color" content="#4f46e5">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Gastos">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+
 <style>
   :root{
     --bg:#f3f5f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#e5e7eb;
@@ -156,8 +165,8 @@ let periodo = "todos";
    Para sincronizar entre o seu celular e o da sua esposa, preencha abaixo o
    e-mail e a senha da conta que você já criou no Supabase. Eles entram
    automaticamente. Se deixar vazio, os dados ficam só neste aparelho. */
-const FAM_EMAIL = "gutovvc@gmail.com";   // ex.: "familia@email.com"
-const FAM_SENHA = "12345678";   // ex.: "minhasenha"
+const FAM_EMAIL = "";   // ex.: "familia@email.com"
+const FAM_SENHA = "";   // ex.: "minhasenha"
 
 const SB_URL = "https://uodfmqddomlrwcupxhev.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZGZtcWRkb21scndjdXB4aGV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNTQ1MDgsImV4cCI6MjEwNjgzMDUwOH0.duALvVJLr5oSH6rCDpElu8QbDbREU5spI_5cfmatsJw";
@@ -482,6 +491,9 @@ render();
 if(nuvem()) sincronizar(); else setStatus("💾 só neste aparelho");
 // ao voltar para a aba/app, confere se virou o dia/mês e há parcelas novas
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ processaParcelas(); render(); if(nuvem()) sincronizar(); } });
+
+/* ---------- App instalável (PWA) ---------- */
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(console.error)); }
 </script>
 </body>
 </html>
