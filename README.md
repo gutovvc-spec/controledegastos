@@ -27,4 +27,6 @@ O app usa a integração Supabase configurada em `index.html`. A chave `anon`/pu
 
 O botão **Esqueci minha senha** envia um link pelo Supabase e retorna à página atual para cadastrar a nova senha. Em **Authentication → URL Configuration → Redirect URLs**, permita `http://127.0.0.1:47631/**` para o executável e também o endereço em que o HTML está publicado, incluindo o caminho quando o app estiver em uma subpasta (por exemplo, `https://usuario.github.io/meu-app/**`). Para login, sincronização e modo offline/PWA funcionarem, abra o app por um endereço HTTP/HTTPS; abrir `index.html` diretamente com `file://` não oferece esses recursos de forma confiável.
 
+Depois de atualizar `index.html` ou `sw.js`, publique novamente os arquivos no serviço de hospedagem para que a versão web receba a alteração. Se o app já estiver instalado como PWA, feche e abra novamente ou atualize a página.
+
 O aplicativo salva dados e sessão no armazenamento local do navegador/WebView. Use o botão **Backup** regularmente, especialmente antes de trocar de computador.
