@@ -608,7 +608,8 @@ fEsqueci.addEventListener("submit",async e=>{
   const btn=$("#recuperarBtn"), email=fEsqueci.email.value.trim().toLowerCase(), msg=$("#recuperarMsg");
   btn.disabled=true; msg.textContent="";
   try{
-    const redirect=encodeURIComponent(window.location.origin);
+    const redirectUrl=window.location.origin+window.location.pathname+window.location.search;
+    const redirect=encodeURIComponent(redirectUrl);
     await authCall(`recover?redirect_to=${redirect}`,{email});
     msg.textContent="Se este e-mail estiver cadastrado, enviaremos um link para redefinir a senha.";
     msg.className="info";

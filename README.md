@@ -25,6 +25,6 @@ O ícone `icon.ico` contém versões em vários tamanhos, geradas com suavizaç�
 
 O app usa a integração Supabase configurada em `index.html`. A chave `anon`/publishable do Supabase é uma chave pública de cliente e não deve ser tratada como senha. Nunca coloque uma chave `service_role` ou `sb_secret_` no HTML ou no executável. Configure políticas RLS no Supabase para que cada usuário só possa ler e alterar os próprios registros.
 
-O botão **Esqueci minha senha** envia um link pelo Supabase. Em **Authentication → URL Configuration → Redirect URLs**, permita a origem usada pelo app; no executável portátil, adicione `http://127.0.0.1:47631/**`. O link abre o app para cadastrar a nova senha.
+O botão **Esqueci minha senha** envia um link pelo Supabase e retorna à página atual para cadastrar a nova senha. Em **Authentication → URL Configuration → Redirect URLs**, permita `http://127.0.0.1:47631/**` para o executável e também o endereço em que o HTML está publicado, incluindo o caminho quando o app estiver em uma subpasta (por exemplo, `https://usuario.github.io/meu-app/**`). Para login, sincronização e modo offline/PWA funcionarem, abra o app por um endereço HTTP/HTTPS; abrir `index.html` diretamente com `file://` não oferece esses recursos de forma confiável.
 
 O aplicativo salva dados e sessão no armazenamento local do navegador/WebView. Use o botão **Backup** regularmente, especialmente antes de trocar de computador.
