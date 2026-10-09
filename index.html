@@ -466,12 +466,12 @@ function mostraErroSync(e){
   if(mensagem.includes("user_id") &&
       (mensagem.includes("does not exist") || mensagem.includes("could not find") ||
        mensagem.includes("schema cache") || mensagem.includes("pgrst204") || mensagem.includes("42703"))){
-    resumo = "⚠ execute a migração SQL";
-    orientacao = "O Supabase ainda não encontrou a coluna user_id. Abra supabase\\isolamento-contas.sql, substitua o e-mail da conta principal e execute o script no SQL Editor do Supabase.";
+    resumo = "⚠ serviço indisponível";
+    orientacao = "Não foi possível acessar sua conta. Tente novamente mais tarde ou entre em contato com o administrador do app.";
   }else if(mensagem.includes("row-level security") || mensagem.includes("row level security") ||
            mensagem.includes("42501") || mensagem.includes("permission denied")){
-    resumo = "⚠ verificar políticas Supabase";
-    orientacao = "O Supabase recusou o acesso. Execute supabase\\isolamento-contas.sql e confira se a migração terminou sem erros.";
+    resumo = "⚠ acesso não autorizado";
+    orientacao = "Sua conta não tem permissão para sincronizar estes dados. Entre em contato com o administrador do app.";
   }else if(e.rede || mensagem.includes("failed to fetch") || mensagem.includes("networkerror")){
     resumo = "⚠ sem conexão com Supabase";
     orientacao = "Verifique a internet e tente sincronizar novamente.";
