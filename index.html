@@ -97,8 +97,11 @@ try{ var _t=localStorage.getItem("gastos-tema");
   #login .box{background:var(--card);border-radius:16px;padding:24px;width:100%;max-width:380px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
   #login h2{margin:0 0 4px;font-size:1.3rem}
   #login p{margin:0 0 16px;color:var(--muted);font-size:.9rem}
-  #fLogin{grid-template-columns:1fr}
+  #fLogin,#fEsqueci,#fNovaSenha{grid-template-columns:1fr}
+  #login form[hidden]{display:none}
   #loginMsg{font-size:.85rem;min-height:1.2em;color:var(--red)}
+  #recuperarMsg,#novaSenhaMsg{font-size:.85rem;min-height:1.2em;color:var(--red)}
+  #recuperarMsg.info,#novaSenhaMsg.info{color:var(--green)}
   #loginMsg.info{color:var(--green)}
   button.linkbtn{background:none;color:var(--primary)}
   button.mini{padding:6px 10px}
@@ -123,13 +126,26 @@ try{ var _t=localStorage.getItem("gastos-tema");
 <div id="login">
   <div class="box">
     <h2 id="loginTitulo">💰 Entrar</h2>
-    <p>Controle de Gastos da Família. Você só precisa entrar uma vez neste aparelho.</p>
+    <p id="loginDescricao">Controle de Gastos da Família. Você só precisa entrar uma vez neste aparelho.</p>
     <form id="fLogin">
       <label>E-mail<input name="email" type="email" required autocomplete="username" inputmode="email"></label>
       <label>Senha<input name="senha" type="password" required minlength="6" autocomplete="current-password"></label>
       <div id="loginMsg"></div>
       <button type="submit" id="loginBtn">Entrar</button>
+      <button type="button" class="linkbtn" id="esqueciSenha">Esqueci minha senha</button>
       <button type="button" class="linkbtn" id="loginTroca">Não tem conta? Criar conta</button>
+    </form>
+    <form id="fEsqueci" hidden>
+      <label>E-mail da conta<input name="email" type="email" required autocomplete="username" inputmode="email"></label>
+      <div id="recuperarMsg" role="status" aria-live="polite"></div>
+      <button type="submit" id="recuperarBtn">Enviar link de recuperação</button>
+      <button type="button" class="linkbtn" id="voltarLogin">Voltar para entrar</button>
+    </form>
+    <form id="fNovaSenha" hidden>
+      <label>Nova senha<input name="senha" type="password" required minlength="6" autocomplete="new-password"></label>
+      <label>Confirme a nova senha<input name="confirmar" type="password" required minlength="6" autocomplete="new-password"></label>
+      <div id="novaSenhaMsg" role="status" aria-live="polite"></div>
+      <button type="submit" id="novaSenhaBtn">Salvar nova senha</button>
     </form>
   </div>
 </div>
@@ -322,7 +338,25 @@ const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 let sess = null; try{ sess = JSON.parse(localStorage.getItem(KEY+"-sess")); }catch(e){}
 const saveSess = ()=>{ try{ sess ? localStorage.setItem(KEY+"-sess",JSON.stringify(sess)) : localStorage.removeItem(KEY+"-sess"); }catch(e){} };
 
+const parametrosRecuperacao = new URLSearchParams(location.hash.slice(1));
+let tokenRecuperacao = parametrosRecuperacao.get("type")==="recovery" ? parametrosRecuperacao.get("access_token") : "";
+const erroRecuperacao = parametrosRecuperacao.get("error_description") || "";
+if(tokenRecuperacao || erroRecuperacao) history.replaceState(null,"",location.pathname+location.search);
+
 const ehUuid = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+function idUsuarioDoToken(accessToken){
+  try{
+    const parte = accessToken.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+    const payload = JSON.parse(atob(parte+"=".repeat((4-parte.length%4)%4)));
+    return ehUuid(payload.sub) ? payload.sub : "";
+  }catch(e){ return ""; }
+}
+function idUsuarioAtual(){
+  const id = sess && idUsuarioDoToken(sess.access_token||"");
+  if(!ehUuid(id)) throw new Error("Não foi possível identificar sua conta. Saia e entre novamente.");
+  if(sess.user_id!==id){ sess.user_id=id; saveSess(); }
+  return id;
+}
 function normalizaIds(){
   db.tx.forEach(t=>{ if(!ehUuid(t.id)) t.id=uid(); });
   db.dividas.forEach(d=>{
@@ -347,10 +381,24 @@ async function authCall(path, body){
   if(!r.ok){ const er=new Error(j.error_description||j.msg||j.message||"Erro de autenticação"); er.status=r.status; throw er; }
   return j;
 }
+async function atualizarSenhaRecuperacao(accessToken, senha){
+  let r;
+  try{
+    r = await fetchT(`${SB_URL}/auth/v1/user`,{
+      method:"PUT",
+      headers:{apikey:SB_KEY,Authorization:"Bearer "+accessToken,"Content-Type":"application/json"},
+      body:JSON.stringify({password:senha})
+    });
+  }catch(e){ const er=new Error("Sem conexão"); er.rede=true; throw er; }
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){ const er=new Error(j.message||j.msg||j.error_description||"Não foi possível alterar a senha."); er.status=r.status; throw er; }
+  return j;
+}
 function setSess(j, email){
   sess = {access_token:j.access_token, refresh_token:j.refresh_token,
           expires_at:Date.now()+(j.expires_in||3600)*1000-60000,
-          email: email || (j.user&&j.user.email) || (sess&&sess.email) || ""};
+          email: email || (j.user&&j.user.email) || (sess&&sess.email) || "",
+          user_id: (j.user&&j.user.id) || idUsuarioDoToken(j.access_token) || (sess&&sess.user_id) || ""};
   saveSess();
 }
 // renova o token sozinho. Só pede login de novo se o servidor RECUSAR a renovação (sem internet não desloga).
@@ -373,11 +421,16 @@ async function rest(method, path, body, extra, tentou){
     headers:{apikey:SB_KEY,Authorization:"Bearer "+t,"Content-Type":"application/json",...(extra||{})},
     body: body ? JSON.stringify(body) : undefined});
   if(r.status===401 && !tentou && sess){ sess.expires_at=0; return rest(method,path,body,extra,true); }
-  if(!r.ok){ const j=await r.json().catch(()=>({})); const er=new Error(j.message||("HTTP "+r.status)); er.status=r.status; throw er; }
+  if(!r.ok){
+    const j=await r.json().catch(()=>({}));
+    const er=new Error(j.message||("HTTP "+r.status));
+    er.status=r.status; er.code=j.code; er.details=j.details; er.hint=j.hint;
+    throw er;
+  }
   return r.json().catch(()=>null);
 }
-const sbUpsert = (tb,rows)=>rest("POST",tb+"?on_conflict=id",rows,{Prefer:"resolution=merge-duplicates,return=minimal"});
-const sbDelete = (tb,id)=>rest("DELETE",`${tb}?id=eq.${id}`,null,{Prefer:"return=minimal"});
+const sbUpsert = (tb,rows)=>rest("POST",tb+"?on_conflict=id",rows.map(row=>({...row,user_id:idUsuarioAtual()})),{Prefer:"resolution=merge-duplicates,return=minimal"});
+const sbDelete = (tb,id)=>rest("DELETE",`${tb}?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(idUsuarioAtual())}`,null,{Prefer:"return=minimal"});
 const rowTx  = t=>({id:t.id,tipo:t.tipo,descricao:t.desc,valor:t.valor,categoria:t.cat,quem:t.quem,data:t.data});
 const rowDiv = d=>({id:d.id,nome:d.nome,total:d.total,pago:d.pago,vencimento:d.venc||null,
                     parcelas:d.parcelas||1,parcelas_pagas:d.pagas||0,inicio:d.inicio||null});
@@ -390,6 +443,7 @@ const nuvem = () => !!sess;
 const FILA_KEY = KEY+"-fila", SEED_KEY = KEY+"-seeded", EMAIL_KEY = KEY+"-email";
 let fila = []; try{ fila = JSON.parse(localStorage.getItem(FILA_KEY)) || []; }catch(e){}
 const saveFila = ()=>{ try{ localStorage.setItem(FILA_KEY, JSON.stringify(fila)); }catch(e){} };
+let erroSync = null;
 
 // Uma coisa de cada vez: evita que um download "velho" traga de volta um item que acabou de ser excluído.
 let trava = Promise.resolve();
@@ -398,9 +452,31 @@ const serial = fn => { const p = trava.then(fn); trava = p.catch(()=>{}); return
 function atualizaStatus(){
   const sair = $("#btnSair"); if(sair) sair.title = sess&&sess.email ? "Sair ("+sess.email+")" : "Sair da conta";
   if(!nuvem()){ setStatus("🔒 faça login", OFF); return; }
+  if(erroSync){ setStatus(erroSync.resumo, OFF); $("#status").title = erroSync.detalhe; return; }
   if(navigator.onLine===false) setStatus(fila.length?`📴 offline — ${fila.length} pendente(s)`:"📴 offline", OFF);
   else if(fila.length)         setStatus(`⚠ ${fila.length} pendente(s) — clique p/ sincronizar`, OFF);
-  else                         setStatus("☁ sincronizado", OK);
+  else { setStatus("☁ sincronizado", OK); $("#status").title = "Clique para sincronizar"; }
+}
+
+function mostraErroSync(e){
+  const mensagem = [e.message,e.details,e.hint,e.code].filter(Boolean).join(" ").toLowerCase();
+  let resumo = "⚠ erro na sincronização";
+  let orientacao = e.message || "Erro desconhecido";
+  if(mensagem.includes("user_id") &&
+      (mensagem.includes("does not exist") || mensagem.includes("could not find") ||
+       mensagem.includes("schema cache") || mensagem.includes("pgrst204") || mensagem.includes("42703"))){
+    resumo = "⚠ execute a migração SQL";
+    orientacao = "O Supabase ainda não encontrou a coluna user_id. Abra supabase\\isolamento-contas.sql, substitua o e-mail da conta principal e execute o script no SQL Editor do Supabase.";
+  }else if(mensagem.includes("row-level security") || mensagem.includes("row level security") ||
+           mensagem.includes("42501") || mensagem.includes("permission denied")){
+    resumo = "⚠ verificar políticas Supabase";
+    orientacao = "O Supabase recusou o acesso. Execute supabase\\isolamento-contas.sql e confira se a migração terminou sem erros.";
+  }else if(e.rede || mensagem.includes("failed to fetch") || mensagem.includes("networkerror")){
+    resumo = "⚠ sem conexão com Supabase";
+    orientacao = "Verifique a internet e tente sincronizar novamente.";
+  }
+  erroSync = {resumo, detalhe:orientacao};
+  atualizaStatus();
 }
 
 // op: "up" (criar/alterar) ou "del" (excluir). Só a última operação de cada item importa.
@@ -423,7 +499,7 @@ async function _flush(){
       fila = fila.filter(x=>x!==o); saveFila();   // remove só o que foi enviado
     }
     $("#status").title = "Clique para sincronizar";
-  }catch(e){ console.error(e); $("#status").title = "Erro: "+e.message; }
+  }catch(e){ console.error(e); mostraErroSync(e); }
   atualizaStatus();
   return fila.length===0;
 }
@@ -441,9 +517,10 @@ function aplicaFila(){
 }
 
 async function baixar(){
+  const dono = encodeURIComponent(idUsuarioAtual());
   const [tx,dv] = await Promise.all([
-    rest("GET","transacoes?select=*&order=data.desc&limit=5000"),
-    rest("GET","dividas?select=*&order=created_at.asc")
+    rest("GET",`transacoes?select=*&user_id=eq.${dono}&order=data.desc&limit=5000`),
+    rest("GET",`dividas?select=*&user_id=eq.${dono}&order=created_at.asc`)
   ]);
   return {
     tx:(tx||[]).map(x=>({id:x.id,tipo:x.tipo,desc:x.descricao,valor:+x.valor,cat:x.categoria,quem:x.quem||"Família",data:x.data})),
@@ -458,7 +535,7 @@ async function _sinc(){
   setStatus("⏳ sincronizando…");
   try{
     normalizaIds();
-    await _flush();                      // 1º envia o que ficou pendente (inclusive exclusões)
+    if(!await _flush()) return;          // não baixa o remoto se não conseguiu enviar a fila local
     let r = await baixar();              // 2º baixa o estado da nuvem
     const temLocal = db.tx.length || db.dividas.length;
     const primeiraVez = !localStorage.getItem(SEED_KEY);
@@ -473,8 +550,12 @@ async function _sinc(){
     save();
     processaParcelas();
     render();
+    erroSync = null;
     atualizaStatus();
-  }catch(e){ console.error(e); atualizaStatus(); }
+  }catch(e){
+    console.error(e);
+    mostraErroSync(e);
+  }
 }
 const sincronizar = () => serial(_sinc);
 $("#status").onclick = ()=>{ if(nuvem()) sincronizar(); };
@@ -484,24 +565,77 @@ setInterval(()=>{ if(nuvem() && fila.length && navigator.onLine!==false) sincron
 
 /* ---------- Login / sair ---------- */
 const loginEl = $("#login"), fLogin = $("#fLogin");
+const fEsqueci = $("#fEsqueci"), fNovaSenha = $("#fNovaSenha");
 let cadastro = false;
-function mostraLogin(msg, info){ loginEl.classList.add("on"); const m=$("#loginMsg"); m.textContent=msg||""; m.className=info?"info":""; }
+function mostraEtapaLogin(formId, titulo, descricao){
+  [fLogin,fEsqueci,fNovaSenha].forEach(form=>{ form.hidden=form.id!==formId; });
+  $("#loginTitulo").textContent=titulo;
+  $("#loginDescricao").textContent=descricao;
+  loginEl.classList.add("on");
+}
+function mostraLogin(msg, info){
+  mostraEtapaLogin("fLogin","💰 Entrar","Controle de Gastos da Família. Você só precisa entrar uma vez neste aparelho.");
+  const m=$("#loginMsg"); m.textContent=msg||""; m.className=info?"info":"";
+}
 function escondeLogin(){ loginEl.classList.remove("on"); }
 function modoLogin(c){
   cadastro = c;
-  $("#loginTitulo").textContent = c ? "💰 Criar conta" : "💰 Entrar";
+  mostraEtapaLogin("fLogin",c?"💰 Criar conta":"💰 Entrar",c?"Crie sua conta para começar a usar o Controle de Gastos da Família.":"Controle de Gastos da Família. Você só precisa entrar uma vez neste aparelho.");
   $("#loginBtn").textContent = c ? "Criar conta" : "Entrar";
+  $("#esqueciSenha").hidden = c;
   $("#loginTroca").textContent = c ? "Já tem conta? Entrar" : "Não tem conta? Criar conta";
   fLogin.senha.autocomplete = c ? "new-password" : "current-password";
   $("#loginMsg").textContent = "";
 }
 $("#loginTroca").onclick = ()=>modoLogin(!cadastro);
+$("#esqueciSenha").onclick = ()=>{
+  if(!fLogin.email.checkValidity()){ fLogin.email.reportValidity(); return; }
+  fEsqueci.email.value=fLogin.email.value.trim().toLowerCase();
+  $("#recuperarMsg").textContent="";
+  $("#recuperarMsg").className="";
+  mostraEtapaLogin("fEsqueci","🔑 Recuperar senha","Informe o e-mail da sua conta para receber o link de recuperação.");
+};
+$("#voltarLogin").onclick = ()=>mostraLogin();
 const msgErro = e => e.rede ? "Sem conexão com a internet."
   : /invalid login/i.test(e.message) ? "E-mail ou senha incorretos."
   : /already registered/i.test(e.message) ? "Este e-mail já tem conta. Use Entrar."
   : /email not confirmed/i.test(e.message) ? "Confirme seu e-mail antes de entrar."
   : /password/i.test(e.message) ? "Senha muito fraca (mínimo 6 caracteres)."
   : e.message;
+
+fEsqueci.addEventListener("submit",async e=>{
+  e.preventDefault();
+  const btn=$("#recuperarBtn"), email=fEsqueci.email.value.trim().toLowerCase(), msg=$("#recuperarMsg");
+  btn.disabled=true; msg.textContent="";
+  try{
+    const redirect=encodeURIComponent(window.location.origin);
+    await authCall(`recover?redirect_to=${redirect}`,{email});
+    msg.textContent="Se este e-mail estiver cadastrado, enviaremos um link para redefinir a senha.";
+    msg.className="info";
+  }catch(err){
+    msg.textContent=msgErro(err);
+    msg.className="";
+  }finally{ btn.disabled=false; }
+});
+
+fNovaSenha.addEventListener("submit",async e=>{
+  e.preventDefault();
+  const btn=$("#novaSenhaBtn"), msg=$("#novaSenhaMsg");
+  const senha=fNovaSenha.senha.value;
+  msg.textContent=""; msg.className="";
+  if(senha!==fNovaSenha.confirmar.value){ msg.textContent="As senhas não coincidem."; return; }
+  if(!tokenRecuperacao){ msg.textContent="Link de recuperação inválido. Solicite um novo link."; return; }
+  btn.disabled=true;
+  try{
+    await atualizarSenhaRecuperacao(tokenRecuperacao,senha);
+    tokenRecuperacao="";
+    fNovaSenha.reset();
+    modoLogin(false);
+    mostraLogin("Senha alterada! Entre com sua nova senha.",true);
+  }catch(err){
+    msg.textContent=msgErro(err);
+  }finally{ btn.disabled=false; }
+});
 
 function sessaoExpirou(){
   sess = null; saveSess(); atualizaStatus();
@@ -971,7 +1105,12 @@ processaParcelas();
 atualizaBotaoValores();
 render();
 atualizaStatus();
-if(nuvem()) sincronizar(); else mostraLogin();
+if(tokenRecuperacao){
+  mostraEtapaLogin("fNovaSenha","🔒 Criar nova senha","Escolha uma nova senha para sua conta.");
+}else if(erroRecuperacao){
+  mostraEtapaLogin("fEsqueci","🔑 Recuperar senha","O link expirou ou não é válido. Solicite um novo link.");
+  $("#recuperarMsg").textContent=erroRecuperacao;
+}else if(nuvem()) sincronizar(); else mostraLogin();
 // ao voltar para a aba/app, confere se virou o dia/mês e há parcelas novas
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ processaParcelas(); render(); if(nuvem()) sincronizar(); } });
 

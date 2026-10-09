@@ -1,0 +1,41 @@
+{
+  "name": "controle-de-gastos-familia",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aplicativo desktop para Controle de Gastos da Família",
+  "main": "electron\\main.cjs",
+  "scripts": {
+    "build": "node scripts\\build.cjs",
+    "dist": "npm run build && electron-builder --win portable && node scripts\\place-exe.cjs"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "javascript-obfuscator": "^4.1.1"
+  },
+  "build": {
+    "appId": "br.com.controledegastos.familia",
+    "productName": "Controle de Gastos da Família",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "app-build/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Controle de Gastos.${ext}"
+    }
+  }
+}
