@@ -176,6 +176,7 @@ try{ var _t=localStorage.getItem("gastos-tema");
     <h1>💰 Controle de Gastos da Família</h1>
     <div class="tools">
       <span id="status" class="badge" title="Clique para sincronizar"></span>
+      <button id="btnValores" type="button" aria-label="Mostrar valores" aria-pressed="false">👁️ Mostrar valores</button>
       <select id="mes" title="Período"></select>
       <button id="btnExp">⬇ Backup</button>
       <button id="btnImp">⬆ Restaurar</button>
@@ -201,10 +202,10 @@ try{ var _t=localStorage.getItem("gastos-tema");
     <section class="card" id="relDetalheCard" style="display:none">
       <h2 id="relDetalheTitulo">Detalhe do mês</h2>
       <div class="grid cards" style="margin-bottom:12px">
-        <div class="card stat"><small>Receitas</small><b class="pos" id="rdRec">R$ 0,00</b></div>
-        <div class="card stat"><small>Despesas</small><b class="neg" id="rdDesp">R$ 0,00</b></div>
-        <div class="card stat"><small>Saldo do mês</small><b id="rdSaldo">R$ 0,00</b></div>
-        <div class="card stat"><small>🛡️ Guardado na reserva</small><b style="color:var(--blue)" id="rdRes">R$ 0,00</b></div>
+        <div class="card stat"><small>Receitas</small><b class="pos" id="rdRec">R$ ••••</b></div>
+        <div class="card stat"><small>Despesas</small><b class="neg" id="rdDesp">R$ ••••</b></div>
+        <div class="card stat"><small>Saldo do mês</small><b id="rdSaldo">R$ ••••</b></div>
+        <div class="card stat"><small>🛡️ Guardado na reserva</small><b style="color:var(--blue)" id="rdRes">R$ ••••</b></div>
       </div>
       <div class="grid two">
         <div><h2 style="font-size:.95rem">🍩 Despesas por categoria</h2><div class="chart" id="rdPizza"></div></div>
@@ -215,11 +216,11 @@ try{ var _t=localStorage.getItem("gastos-tema");
 
   <div id="abaHome" class="grid">
   <section class="grid cards">
-    <div class="card stat"><small>Receitas</small><b class="pos" id="sRec">R$ 0,00</b></div>
-    <div class="card stat"><small>Despesas</small><b class="neg" id="sDesp">R$ 0,00</b></div>
-    <div class="card stat"><small>Saldo do período</small><b id="sSaldo">R$ 0,00</b><span class="nota" id="sSaldoNota"></span></div>
-    <div class="card stat"><small>🛡️ Reserva de emergência</small><b style="color:var(--blue)" id="sRes">R$ 0,00</b><span class="nota">indisponível no saldo</span></div>
-    <div class="card stat"><small>Dívidas em aberto</small><b style="color:var(--orange)" id="sDiv">R$ 0,00</b></div>
+    <div class="card stat"><small>Receitas</small><b class="pos" id="sRec">R$ ••••</b></div>
+    <div class="card stat"><small>Despesas</small><b class="neg" id="sDesp">R$ ••••</b></div>
+    <div class="card stat"><small>Saldo do período</small><b id="sSaldo">R$ ••••</b><span class="nota" id="sSaldoNota"></span></div>
+    <div class="card stat"><small>🛡️ Reserva de emergência</small><b style="color:var(--blue)" id="sRes">R$ ••••</b><span class="nota">indisponível no saldo</span></div>
+    <div class="card stat"><small>Dívidas em aberto</small><b style="color:var(--orange)" id="sDiv">R$ ••••</b></div>
   </section>
 
   <section class="card">
@@ -299,7 +300,8 @@ const ehRes = t => t.cat===CAT_RES;
 const CORES = ["#4f46e5","#16a34a","#ea580c","#0ea5e9","#db2777","#ca8a04","#7c3aed","#14b8a6","#dc2626","#64748b","#84cc16"];
 const KEY = "gastos-familia-v1";
 const $ = s => document.querySelector(s);
-const brl = v => v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+let valoresVisiveis = false;
+const brl = v => valoresVisiveis ? v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}) : "R$ ••••";
 const round2 = x => Math.round(x*100)/100;
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
   : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&3|8)).toString(16);});
@@ -809,7 +811,7 @@ function barras(){
   let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">`;
   for(let i=0;i<=4;i++){
     const y=pt+(H-pb-pt)*(1-i/4);
-    svg+=`<line class="grid-l" x1="40" x2="${W}" y1="${y}" y2="${y}"/><text class="t-muted" x="36" y="${y+4}" text-anchor="end" font-size="9">${Math.round(max*i/4)}</text>`;
+    svg+=`<line class="grid-l" x1="40" x2="${W}" y1="${y}" y2="${y}"/><text class="t-muted" x="36" y="${y+4}" text-anchor="end" font-size="9">${valoresVisiveis?Math.round(max*i/4):"•••"}</text>`;
   }
   dados.forEach((x,i)=>{
     const cx=40+gap*i+gap/2, h=v=>(H-pb-pt)*v/max;
@@ -949,9 +951,24 @@ function render(){
   }).join("") : `<div class="empty">Nenhuma dívida cadastrada. 🎉</div>`;
 }
 
+function atualizaBotaoValores(){
+  const btn = $("#btnValores");
+  const acao = valoresVisiveis ? "Ocultar" : "Mostrar";
+  btn.textContent = `${valoresVisiveis?"🙈":"👁️"} ${acao} valores`;
+  btn.setAttribute("aria-label", `${acao} valores`);
+  btn.setAttribute("aria-pressed", String(valoresVisiveis));
+}
+$("#btnValores").addEventListener("click",()=>{
+  valoresVisiveis = !valoresVisiveis;
+  atualizaBotaoValores();
+  render();
+  if(abaAtual!=="rel") renderRelatorio();
+});
+
 /* ---------- Início ---------- */
 normalizaIds();
 processaParcelas();
+atualizaBotaoValores();
 render();
 atualizaStatus();
 if(nuvem()) sincronizar(); else mostraLogin();
