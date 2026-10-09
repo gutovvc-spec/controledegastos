@@ -5,8 +5,8 @@
   "description": "Aplicativo desktop para Controle de Gastos da Família",
   "main": "electron\\main.cjs",
   "scripts": {
-    "build": "node scripts\\build.cjs",
-    "dist": "npm run build && electron-builder --win portable && node scripts\\place-exe.cjs"
+    "build": "node scripts/build.cjs",
+    "dist": "npm run build && electron-builder --win portable && node scripts/place-exe.cjs"
   },
   "devDependencies": {
     "electron": "^44.7.0",
