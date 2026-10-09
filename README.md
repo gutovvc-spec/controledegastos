@@ -21,6 +21,8 @@ O executável portátil será criado na raiz desta pasta como `Controle de Gasto
 
 O ícone `icon.ico` contém versões em vários tamanhos, geradas com suavização a partir de `icon-512.png` para manter a nitidez em diferentes tamanhos de exibição. O empacotamento arquiva os arquivos do app e ofusca os scripts JavaScript no executável. A versão original e legível continua em `index.html`.
 
+O arquivo `vercel.json` publica a pasta `app-build` produzida pelo comando de build, tanto para o Vercel quanto para a versão web.
+
 ## Supabase e proteção de dados
 
 O app usa a integração Supabase configurada em `index.html`. A chave `anon`/publishable do Supabase é uma chave pública de cliente e não deve ser tratada como senha. Nunca coloque uma chave `service_role` ou `sb_secret_` no HTML ou no executável. Configure políticas RLS no Supabase para que cada usuário só possa ler e alterar os próprios registros.
