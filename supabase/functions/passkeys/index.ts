@@ -181,6 +181,23 @@ async function registrationOptions(
   return { challengeId, options };
 }
 
+async function passkeyStatus(request: Request): Promise<unknown> {
+  const user = await currentUser(request);
+  const credentials = await supabaseRequest(
+    `/rest/v1/passkey_credentials?user_id=eq.${user.id}&select=credential_id`,
+  ) as Array<{ credential_id: string }>;
+  return { registered: credentials.length > 0 };
+}
+
+async function removePasskeys(request: Request): Promise<unknown> {
+  const user = await currentUser(request);
+  const removed = await supabaseRequest(
+    `/rest/v1/passkey_credentials?user_id=eq.${user.id}&select=credential_id`,
+    { method: "DELETE", headers: { Prefer: "return=representation" } },
+  ) as Array<{ credential_id: string }>;
+  return { removed: removed.length };
+}
+
 async function verifyRegistration(
   request: Request,
   body: Record<string, unknown>,
@@ -306,9 +323,7 @@ async function verifyAuthentication(
 Deno.serve(async (request) => {
   const origin = request.headers.get("Origin") ?? "";
   const origins = allowedOrigins();
-  if (!origin || !origins.has(origin)) {
-    return new Response("Origem não permitida.", { status: 403 });
-  }
+  if (!origin) return new Response("Origem não permitida.", { status: 403 });
   if (request.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
@@ -322,6 +337,9 @@ Deno.serve(async (request) => {
     });
   }
   if (request.method !== "POST") return response({ error: "Método não permitido." }, 405, origin);
+  if (!origins.has(origin)) {
+    return response({ error: "Este endereço não está configurado para passkeys. Adicione-o a WEBAUTHN_ORIGINS." }, 403, origin);
+  }
 
   try {
     const rpId = new URL(origin).hostname;
@@ -331,6 +349,12 @@ Deno.serve(async (request) => {
     const body = await request.json() as Record<string, unknown>;
     let result: unknown;
     switch (body.action) {
+      case "status":
+        result = await passkeyStatus(request);
+        break;
+      case "remove":
+        result = await removePasskeys(request);
+        break;
       case "registration-options":
         result = await registrationOptions(request, origin, rpId);
         break;

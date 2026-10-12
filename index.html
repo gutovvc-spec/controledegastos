@@ -133,7 +133,7 @@ try{ var _t=localStorage.getItem("gastos-tema");
       <label>Senha<input name="senha" type="password" required minlength="6" autocomplete="current-password"></label>
       <div id="loginMsg"></div>
       <button type="submit" id="loginBtn">Entrar</button>
-      <button type="button" class="sec" id="loginPasskey" hidden>🔐 Entrar com digital / passkey</button>
+      <button type="button" class="sec" id="loginPasskey" hidden>🔐 Entrar com digital</button>
       <button type="button" class="linkbtn" id="esqueciSenha">Esqueci minha senha</button>
       <button type="button" class="linkbtn" id="loginTroca">Não tem conta? Criar conta</button>
     </form>
@@ -199,7 +199,7 @@ try{ var _t=localStorage.getItem("gastos-tema");
       <button id="btnExp">⬇ Backup</button>
       <button id="btnImp">⬆ Restaurar</button>
       <button id="btnTema" title="Modo escuro / claro">🌙</button>
-      <button id="btnPasskey" type="button" hidden>Cadastrar passkey</button>
+      <button id="btnPasskey" type="button" hidden>Cadastrar digital</button>
       <button id="btnSair" title="Sair da conta">Sair</button>
       <input type="file" id="file" accept=".json" hidden>
     </div>
@@ -425,8 +425,12 @@ async function passkeyCall(action, data={}){
       headers:{apikey:SB_KEY,Authorization:"Bearer "+accessToken,"Content-Type":"application/json"},
       body:JSON.stringify({action,...data})
     });
-  }catch(e){ const er=new Error("Sem conexão com o serviço de passkeys."); er.rede=true; throw er; }
+  }catch(e){
+    if(navigator.onLine===false){ const er=new Error("Sem conexão com a internet."); er.rede=true; throw er; }
+    throw new Error("Não foi possível acessar o serviço de digitais do Supabase. Confira se a função passkeys foi publicada e se este endereço está configurado em WEBAUTHN_ORIGINS.");
+  }
   const result=await response.json().catch(()=>({}));
+  if(response.status===404) throw new Error("A função passkeys não foi encontrada no Supabase. Publique a Edge Function passkeys.");
   if(!response.ok) throw new Error(result.error||"Não foi possível concluir a autenticação com passkey.");
   return result;
 }
@@ -447,7 +451,25 @@ function opcoesAutenticacao(options){
 }
 function atualizaBotoesPasskey(){
   $("#loginPasskey").hidden=cadastro || !passkeySupport();
-  $("#btnPasskey").hidden=!sess || !passkeySupport();
+  const btn=$("#btnPasskey");
+  btn.hidden=!sess || !passkeySupport();
+  btn.disabled=verificandoDigital;
+  btn.textContent=!digitalStatusPronto?"Verificar digital novamente"
+    :digitalCadastrada?"Remover digital":"Cadastrar digital";
+}
+async function atualizarStatusDigital(){
+  if(!sess || !passkeySupport()) return false;
+  verificandoDigital=true;
+  atualizaBotoesPasskey();
+  try{
+    const status=await passkeyCall("status");
+    digitalCadastrada=!!status.registered;
+    digitalStatusPronto=true;
+    return true;
+  }finally{
+    verificandoDigital=false;
+    atualizaBotoesPasskey();
+  }
 }
 async function atualizarSenhaRecuperacao(accessToken, senha){
   let r;
@@ -635,6 +657,7 @@ setInterval(()=>{ if(nuvem() && fila.length && navigator.onLine!==false) sincron
 const loginEl = $("#login"), fLogin = $("#fLogin");
 const fEsqueci = $("#fEsqueci"), fNovaSenha = $("#fNovaSenha");
 let cadastro = false;
+let digitalCadastrada = false, digitalStatusPronto = false, verificandoDigital = false;
 function mostraEtapaLogin(formId, titulo, descricao){
   [fLogin,fEsqueci,fNovaSenha].forEach(form=>{ form.hidden=form.id!==formId; });
   $("#loginTitulo").textContent=titulo;
@@ -722,6 +745,7 @@ function aoLogar(email){
   try{ localStorage.setItem(EMAIL_KEY, email); }catch(e){}
   fLogin.senha.value = "";
   atualizaBotoesPasskey();
+  atualizarStatusDigital().catch(error=>console.error("Não foi possível verificar o cadastro da digital:",error));
   escondeLogin(); render(); atualizaStatus(); sincronizar();
 }
 fLogin.addEventListener("submit", async e=>{
@@ -757,16 +781,40 @@ $("#loginPasskey").addEventListener("click",async()=>{
 $("#btnPasskey").addEventListener("click",async()=>{
   const btn=$("#btnPasskey");
   if(!passkeySupport()){ alert("Este navegador ou dispositivo não oferece suporte a passkeys."); return; }
+  if(!digitalStatusPronto){
+    try{
+      await atualizarStatusDigital();
+    }catch(error){
+      alert(msgErro(error));
+      return;
+    }
+    if(!digitalStatusPronto) return;
+  }
+  if(digitalCadastrada){
+    if(!confirm("Remover a digital desta conta? Todas as passkeys cadastradas serão desativadas para entrar neste aplicativo. Isso não apaga a digital ou o PIN salvos no dispositivo.")) return;
+    btn.disabled=true;
+    try{
+      await passkeyCall("remove");
+      digitalCadastrada=false;
+      digitalStatusPronto=true;
+      alert("Digital removida da conta. A digital ou o PIN continuam cadastrados no dispositivo.");
+    }catch(err){
+      alert(msgErro(err));
+    }finally{ btn.disabled=false; atualizaBotoesPasskey(); }
+    return;
+  }
   btn.disabled=true;
   try{
     const {challengeId,options}=await passkeyCall("registration-options");
     const credential=await navigator.credentials.create({publicKey:opcoesCriacao(options)});
     if(!credential) throw new Error("O cadastro da passkey foi cancelado.");
     await passkeyCall("registration-verify",{challengeId,credential:webAuthnJSON(credential)});
-    alert("Passkey cadastrada. Na próxima vez, você poderá entrar com a digital, reconhecimento facial ou PIN do dispositivo.");
+    digitalCadastrada=true;
+    digitalStatusPronto=true;
+    alert("Digital cadastrada. Na próxima vez, você poderá entrar com a digital, reconhecimento facial ou PIN do dispositivo.");
   }catch(err){
     alert(err.name==="NotAllowedError"?"O cadastro foi cancelado ou expirou.":msgErro(err));
-  }finally{ btn.disabled=false; }
+  }finally{ btn.disabled=false; atualizaBotoesPasskey(); }
 });
 $("#btnSair").onclick = ()=>{
   if(navigator.onLine===false){ alert("Você está offline. Conecte-se à internet para sair, senão não conseguirá entrar de novo."); return; }
@@ -1211,7 +1259,10 @@ if(tokenRecuperacao){
 }else if(erroRecuperacao){
   mostraEtapaLogin("fEsqueci","🔑 Recuperar senha","O link expirou ou não é válido. Solicite um novo link.");
   $("#recuperarMsg").textContent=erroRecuperacao;
-}else if(nuvem()) sincronizar(); else mostraLogin();
+}else if(nuvem()){
+  sincronizar();
+  if(sess) atualizarStatusDigital().catch(error=>console.error("Não foi possível verificar o cadastro da digital:",error));
+} else mostraLogin();
 // ao voltar para a aba/app, confere se virou o dia/mês e há parcelas novas
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ processaParcelas(); render(); if(nuvem()) sincronizar(); } });
 
