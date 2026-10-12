@@ -11,7 +11,8 @@
   "devDependencies": {
     "electron": "^44.7.0",
     "electron-builder": "^26.15.3",
-    "javascript-obfuscator": "^4.1.1"
+    "javascript-obfuscator": "^4.1.1",
+    "supabase": "^2.120.0"
   },
   "build": {
     "appId": "br.com.controledegastos.familia",

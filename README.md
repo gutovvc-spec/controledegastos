@@ -32,8 +32,8 @@ Use o botão **Backup** regularmente, especialmente antes de trocar de computado
 O login com passkey usa WebAuthn e precisa de uma validação no servidor. Para habilitá-lo:
 
 1. Aplique a migração `supabase/migrations/20261012000000_passkeys.sql` ao projeto Supabase.
-2. Configure os secrets das Edge Functions `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e `WEBAUTHN_ORIGINS`. Este último deve conter as origens completas permitidas, separadas por vírgula e sem `/` no final (por exemplo, `https://seu-dominio.example,http://localhost:47631`). Não coloque a chave `SERVICE_ROLE` no app.
-3. Publique a função `passkeys` com `supabase functions deploy passkeys`.
+2. Em **Edge Functions → Secrets**, cadastre somente o secret personalizado `WEBAUTHN_ORIGINS`, com as origens completas permitidas separadas por vírgula e sem `/` no final (por exemplo, `https://seu-dominio.example,http://localhost:47631`). As variáveis `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` são fornecidas pelo Supabase às Edge Functions; não tente cadastrá-las como secrets personalizados, pois o prefixo `SUPABASE_` é reservado. Nunca coloque a chave `SERVICE_ROLE` no app.
+3. Publique a função `passkeys` com `supabase functions deploy passkeys --no-verify-jwt`. A função valida a sessão do usuário nas operações protegidas e precisa aceitar a primeira chamada de login sem sessão.
 4. Depois de entrar com e-mail e senha, use **Cadastrar digital**. O botão muda para **Remover digital**; removê-la exige confirmação e desativa todas as passkeys da conta neste aplicativo, mas não apaga a biometria/PIN do dispositivo. Nas próximas entradas, escolha **Entrar com digital / passkey**.
 
 A passkey é específica para a origem em que foi cadastrada. O app desktop usa `http://localhost:47631`; a versão web precisa usar HTTPS. O navegador/dispositivo decide se confirma com digital, reconhecimento facial, chave de segurança ou PIN. A senha continua disponível como alternativa.
