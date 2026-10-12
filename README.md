@@ -26,3 +26,14 @@ O app mantém dados e a sessão no armazenamento local do navegador/WebView para
 O botão **Esqueci minha senha** envia um link para redefinir a senha. Para login, sincronização e modo offline/PWA funcionarem, abra o app por um endereço HTTP/HTTPS; abrir `index.html` diretamente com `file://` não oferece esses recursos de forma confiável.
 
 Use o botão **Backup** regularmente, especialmente antes de trocar de computador.
+
+## Login com passkey (digital, rosto ou PIN do dispositivo)
+
+O login com passkey usa WebAuthn e precisa de uma validação no servidor. Para habilitá-lo:
+
+1. Aplique a migração `supabase/migrations/20261012000000_passkeys.sql` ao projeto Supabase.
+2. Configure os secrets das Edge Functions `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e `WEBAUTHN_ORIGINS`. Este último deve conter as origens completas permitidas, separadas por vírgula e sem `/` no final (por exemplo, `https://seu-dominio.example,http://localhost:47631`). Não coloque a chave `SERVICE_ROLE` no app.
+3. Publique a função `passkeys` com `supabase functions deploy passkeys`.
+4. Depois de entrar com e-mail e senha, use **Cadastrar passkey**. Nas próximas entradas, escolha **Entrar com digital / passkey**.
+
+A passkey é específica para a origem em que foi cadastrada. O app desktop usa `http://localhost:47631`; a versão web precisa usar HTTPS. O navegador/dispositivo decide se confirma com digital, reconhecimento facial, chave de segurança ou PIN. A senha continua disponível como alternativa.
