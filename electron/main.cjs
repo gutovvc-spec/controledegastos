@@ -76,10 +76,10 @@ if (!app.requestSingleInstanceLock()) {
       });
       mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       mainWindow.webContents.on("will-navigate", (event, target) => {
-        if (target !== `http://localhost:${PORT}/` &&
-            !target.startsWith(`http://localhost:${PORT}/`)) event.preventDefault();
+        if (target !== `http://127.0.0.1:${PORT}/` &&
+            !target.startsWith(`http://127.0.0.1:${PORT}/`)) event.preventDefault();
       });
-      mainWindow.loadURL(`http://localhost:${PORT}/`);
+      mainWindow.loadURL(`http://127.0.0.1:${PORT}/`);
     });
   });
 
